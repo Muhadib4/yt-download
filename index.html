@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f6f8f7">
+    <meta name="description" content="A clear, privacy-conscious workspace for checking YouTube links and preparing a media request.">
+    <title>yt-download — media request workspace</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="js/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="#top" aria-label="yt-download home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false"><path d="M9.3 6.8v10.4l8-5.2-8-5.2Z" fill="currentColor"/></svg>
+          </span>
+          <span>yt<span class="brand-divider">-</span>download</span>
+        </a>
+
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation">
+          <span></span><span></span><span></span>
+        </button>
+
+        <nav class="primary-nav" id="primary-nav" aria-label="Main navigation">
+          <a href="#features">Features</a>
+          <a href="#how-it-works">How to use</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+
+        <div class="privacy-note" aria-label="Privacy note">
+          <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 2.5 4 5v4.2c0 3.8 2.6 6.8 6 8.3 3.4-1.5 6-4.5 6-8.3V5l-6-2.5Zm-2.7 7.2 1.8 1.8 3.8-4"/></svg>
+          <span>URL checked in this browser</span>
+        </div>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="eyebrow-dot"></span> A thoughtful media workspace</p>
+          <h1 id="hero-title">Get your media request <span>in order.</span></h1>
+          <p class="hero-description">Check a YouTube link, choose an intended format, and set a time range. Media processing needs a connected, authorized service.</p>
+        </div>
+
+        <section class="workspace" aria-labelledby="workspace-title">
+          <div class="workspace-heading">
+            <div>
+              <p class="section-kicker">Your request</p>
+              <h2 id="workspace-title">Prepare a media request</h2>
+            </div>
+            <span class="processor-badge"><span aria-hidden="true"></span> Processor not connected</span>
+          </div>
+
+          <form id="request-form" novalidate>
+            <div class="field-group url-group">
+              <label for="video-url">YouTube video link</label>
+              <div class="url-control">
+                <input id="video-url" name="video-url" type="text" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://www.youtube.com/watch?v=…" aria-describedby="url-help url-error">
+                <button class="icon-button" id="paste-button" type="button" aria-label="Paste URL from clipboard" title="Paste URL">
+                  <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M7 5.5H5.8A1.8 1.8 0 0 0 4 7.3v7A1.8 1.8 0 0 0 5.8 16h6.4a1.8 1.8 0 0 0 1.8-1.8V13M8 3.5h6.2A1.8 1.8 0 0 1 16 5.3v6.4a1.8 1.8 0 0 1-1.8 1.8H8a1.8 1.8 0 0 1-1.8-1.8V5.3A1.8 1.8 0 0 1 8 3.5Z"/></svg>
+                  <span>Paste</span>
+                </button>
+                <button class="icon-button copy-button" id="copy-button" type="button" aria-label="Copy URL" title="Copy URL" hidden>
+                  <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><rect x="7" y="6" width="9" height="10" rx="1.5"/><path d="M12.5 4H5.8A1.8 1.8 0 0 0 4 5.8v7"/></svg>
+                  <span>Copy</span>
+                </button>
+                <button class="button button-primary analyze-button" id="analyze-button" type="button">
+                  Analyze URL
+                  <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M4 10h11m-4-4 4 4-4 4"/></svg>
+                </button>
+              </div>
+              <p class="field-help" id="url-help">Supported link types: YouTube watch, Shorts, and youtu.be.</p>
+              <p class="field-error" id="url-error" role="alert"></p>
+            </div>
+
+            <div class="form-divider"></div>
+
+            <fieldset class="field-group format-fieldset">
+              <legend>Preferred format</legend>
+              <div class="choice-grid format-choices">
+                <label class="choice-card">
+                  <input type="radio" name="format" value="mp4" checked>
+                  <span class="choice-radio" aria-hidden="true"></span>
+                  <span class="choice-icon file-icon" aria-hidden="true">MP4</span>
+                  <span class="choice-copy"><strong>MP4 video</strong><small>Preference only</small></span>
+                </label>
+                <label class="choice-card">
+                  <input type="radio" name="format" value="mp3">
+                  <span class="choice-radio" aria-hidden="true"></span>
+                  <span class="choice-icon audio-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" focusable="false"><path d="M11.8 4v9.1a2.6 2.6 0 1 1-1.5-2.4V6l5-1.4v7.4a2.6 2.6 0 1 1-1.5-2.4V3.8L11.8 4Z"/></svg>
+                  </span>
+                  <span class="choice-copy"><strong>MP3 audio</strong><small>Preference only</small></span>
+                </label>
+              </div>
+            </fieldset>
+
+            <div class="options-grid">
+              <div class="field-group quality-group">
+                <label id="quality-label" for="quality-select">Video quality</label>
+                <div class="select-wrap">
+                  <select id="quality-select" name="quality" disabled aria-describedby="quality-help">
+                    <option>Unavailable in this version</option>
+                  </select>
+                  <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m5.5 7.5 4.5 4 4.5-4"/></svg>
+                </div>
+                <p class="field-help" id="quality-help">Options appear when a processor reports real capabilities.</p>
+              </div>
+
+              <fieldset class="field-group duration-fieldset">
+                <legend>Duration</legend>
+                <div class="duration-options">
+                  <label class="radio-label"><input type="radio" name="duration-mode" value="full" checked><span>Full duration</span></label>
+                  <label class="radio-label"><input type="radio" name="duration-mode" value="custom"><span>Custom range</span></label>
+                </div>
+              </fieldset>
+            </div>
+
+            <fieldset class="range-fields" id="range-fields" hidden>
+              <legend class="visually-hidden">Custom time range</legend>
+              <div class="range-inputs">
+                <div class="field-group">
+                  <label for="start-time">Start time</label>
+                  <input id="start-time" name="start-time" type="text" inputmode="numeric" autocomplete="off" placeholder="00:00:00" aria-describedby="time-help range-error" disabled>
+                </div>
+                <span class="range-separator" aria-hidden="true">to</span>
+                <div class="field-group">
+                  <label for="end-time">End time</label>
+                  <input id="end-time" name="end-time" type="text" inputmode="numeric" autocomplete="off" placeholder="00:00:00" aria-describedby="time-help range-error" disabled>
+                </div>
+              </div>
+              <p class="field-help" id="time-help">Use HH:MM:SS. Duration can’t be checked until a processor provides it.</p>
+              <p class="field-error" id="range-error" role="alert"></p>
+            </fieldset>
+
+            <div class="form-actions">
+              <button class="button button-primary submit-button" type="submit">
+                Check request settings
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M4 10h11m-4-4 4 4-4 4"/></svg>
+              </button>
+              <p class="action-note">This page validates settings only. It won’t fetch video data or create a file.</p>
+            </div>
+
+            <div class="status-message" id="status-message" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+          </form>
+
+          <div class="workspace-footnote">
+            <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 2.5 4 5v4.2c0 3.8 2.6 6.8 6 8.3 3.4-1.5 6-4.5 6-8.3V5l-6-2.5Zm-2.7 7.2 1.8 1.8 3.8-4"/></svg>
+            <span>Your link stays on this device. This page doesn’t upload or store it.</span>
+          </div>
+        </section>
+        <p class="hero-caption">Use media only when you have permission and the platform’s terms and applicable law allow it.</p>
+      </section>
+
+      <section class="content-section how-section" id="how-it-works" aria-labelledby="how-title">
+        <div class="section-heading">
+          <p class="section-kicker">A simple workflow</p>
+          <h2 id="how-title">How to use this page</h2>
+          <p>Set up your request here. A separate authorized processor is needed to handle media.</p>
+        </div>
+        <div class="steps-grid">
+          <article class="step-card">
+            <span class="step-number">01</span>
+            <h3>Enter a supported link</h3>
+            <p>Paste a YouTube watch, Shorts, or youtu.be URL. The page checks its format in your browser.</p>
+          </article>
+          <article class="step-card">
+            <span class="step-number">02</span>
+            <h3>Set your preferences</h3>
+            <p>Choose MP4 or MP3 and, when supported, specify the portion you need.</p>
+          </article>
+          <article class="step-card">
+            <span class="step-number">03</span>
+            <h3>Connect a processor</h3>
+            <p>This standalone site doesn’t extract or convert media. A permitted processing service must provide those capabilities.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="content-section features-section" id="features" aria-labelledby="features-title">
+        <div class="section-heading">
+          <p class="section-kicker">Built for clarity</p>
+          <h2 id="features-title">A useful start, with honest limits</h2>
+        </div>
+        <div class="features-grid">
+          <article class="feature-item">
+            <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 20 20" focusable="false"><rect x="3" y="4" width="14" height="12" rx="2"/><path d="m8 7 5 3-5 3V7Z"/></svg></span>
+            <div><h3>Choose an output</h3><p>MP4 and MP3 are selectable as preferences. Producing either file requires a connected processor.</p></div>
+          </article>
+          <article class="feature-item">
+            <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 20 20" focusable="false"><path d="M3 15.5h14M5 12V8m5 4V4m5 8V6"/></svg></span>
+            <div><h3>Quality, when available</h3><p>Quality choices stay unavailable until a processor supplies the real options it can produce.</p></div>
+          </article>
+          <article class="feature-item">
+            <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 20 20" focusable="false"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l2.5 1.5"/></svg></span>
+            <div><h3>Time range controls</h3><p>Custom start and end times are checked locally. Trimming and duration checks need a processor.</p></div>
+          </article>
+          <article class="feature-item">
+            <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 20 20" focusable="false"><path d="M10 2.5 4 5v4.2c0 3.8 2.6 6.8 6 8.3 3.4-1.5 6-4.5 6-8.3V5l-6-2.5Zm-2.7 7.2 1.8 1.8 3.8-4"/></svg></span>
+            <div><h3>Privacy-conscious by default</h3><p>URL checks happen on this page. It doesn’t send your link to a server or store it after you leave.</p></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="content-section faq-section" id="faq" aria-labelledby="faq-title">
+        <div class="faq-intro">
+          <p class="section-kicker">Good to know</p>
+          <h2 id="faq-title">Frequently asked questions</h2>
+          <p>Clear answers about what this version can do.</p>
+        </div>
+        <div class="faq-list">
+          <details>
+            <summary>Which URLs are supported?</summary>
+            <p>The page recognizes standard YouTube watch links, youtu.be short links, and YouTube Shorts links. A valid-looking URL doesn’t confirm that the video is accessible or downloadable.</p>
+          </details>
+          <details>
+            <summary>Why might a URL fail?</summary>
+            <p>It may be malformed, use an unsupported YouTube path, omit a valid video ID, or point to content that is unavailable. This page doesn’t check whether a video exists.</p>
+          </details>
+          <details>
+            <summary>Which formats and qualities are available?</summary>
+            <p>You can select MP4 or MP3 as a preference. Actual formats and quality choices depend on a connected processor; none are available in this standalone version.</p>
+          </details>
+          <details>
+            <summary>Can I trim a video?</summary>
+            <p>You can enter and validate a custom start and end time. The page can’t inspect the video duration or trim media until an authorized processor is connected.</p>
+          </details>
+          <details>
+            <summary>Where is media processed?</summary>
+            <p>Nowhere in this version. Your link is checked locally and no media is fetched. A future integration must clearly identify its processor and how it handles submitted links.</p>
+          </details>
+          <details>
+            <summary>Why might downloading not be available?</summary>
+            <p>Some content may be restricted by the platform, a creator, copyright, or local law. This site doesn’t bypass access controls. Download only when you have permission and the applicable terms allow it.</p>
+          </details>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <a class="brand footer-brand" href="#top">
+          <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M9.3 6.8v10.4l8-5.2-8-5.2Z" fill="currentColor"/></svg></span>
+          <span>yt<span class="brand-divider">-</span>download</span>
+        </a>
+        <p class="footer-disclaimer">An independent project, not affiliated with or endorsed by YouTube. Use media only with permission and in line with applicable terms and law.</p>
+        <a class="footer-link" href="https://github.com/Muhadib4/yt-download" target="_blank" rel="noopener noreferrer">View project on GitHub <span aria-hidden="true">↗</span></a>
+      </div>
+    </footer>
+  </body>
+</html>
