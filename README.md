@@ -1,36 +1,51 @@
 # yt-download
 
-A lightweight, no-build frontend for preparing a YouTube media request. It validates supported link formats and custom time ranges in the browser. It does **not** extract, convert, trim, or download media.
+Frontend ringan dengan processor media lokal. File audio/video yang Anda berhak gunakan bisa dikonversi menjadi MP4 atau MP3, dipotong pada rentang waktu tertentu, lalu diunduh. Tidak ada ekstraksi stream YouTube.
 
-## Run locally
+## Jalankan di komputer sendiri
 
-Open `index.html` directly in a current desktop or mobile browser. There is no package installation, build step, or development server requirement. Clipboard permissions vary by browser; if clipboard access is unavailable, use the browser or device's normal paste and copy controls.
+Butuh Python 3.10 atau lebih baru serta ffmpeg dan ffprobe yang tersedia di PATH. Tidak ada dependensi Python tambahan, instalasi npm, atau build frontend.
 
-## What works
+```powershell
+python server.py
+```
 
-- Recognizes YouTube watch, `youtu.be`, Shorts, live, and embed URL formats and checks for a well-formed video ID. This is a format check only; it does not confirm that a video exists or can be accessed.
-- Lets users select MP4 or MP3 as an intended output format.
-- Accepts full duration or a custom `HH:MM:SS` start and end time, and checks that the end is later than the start.
-- Offers clipboard paste and copy when browser permissions allow, with manual-use guidance and a copy fallback.
-- Keeps URL validation in the page. The frontend does not send URLs to a server, save them, fetch video details, or create download files.
-- Provides a responsive layout, mobile navigation, keyboard focus styles, reduced-motion support, and accessible status and validation messages.
+Buka http://127.0.0.1:8765. Jangan buka index.html langsung untuk menggunakan konversi; frontend perlu dilayani oleh processor lokal agar dapat berbicara ke API yang sama.
 
-## Current limitations
+Pilih file yang diizinkan, setujui pemrosesan, lalu pilih **Periksa kemampuan**. Opsi format dan kualitas berasal dari file dan encoder FFmpeg yang terdeteksi. Pilih seluruh durasi atau rentang khusus, kemudian **Konversi & unduh**.
 
-The quality selector is intentionally disabled because there is no processor to report real capabilities. Time ranges are validated for format and ordering, but the page cannot compare them with a video's duration. No loading progress, metadata, success state, or download link is simulated.
+Batas unggahan awal adalah 2 GB. Untuk mengubahnya, jalankan python server.py --max-upload-mb 4096. Jika port 8765 sedang dipakai, pilih port lain dengan python server.py --port 8766.
 
-Downloading from YouTube may be restricted by the platform, a creator, copyright, or applicable law. Use media only with permission and in accordance with applicable terms and law. This independent project is not affiliated with or endorsed by YouTube.
+## Kemampuan processor
 
-## Future processor integration
+- **MP4:** tersedia untuk file dengan trek video jika encoder H.264 libx264 ada. File yang memiliki audio juga memerlukan encoder AAC. Resolusi yang ditawarkan tidak lebih tinggi dari sumber; ukuran asli selalu tersedia.
+- **MP3:** tersedia untuk file dengan trek audio jika encoder libmp3lame ada. Pilihan bitrate yang ditampilkan hanya muncul ketika encoder tersebut tersedia.
+- **Rentang khusus:** HH:MM:SS divalidasi di frontend dan backend. Durasi dibaca dari media menggunakan ffprobe; rentang dinonaktifkan jika durasi tidak diketahui dan ditolak jika melewati durasi sumber.
+- **Status dan progres:** berasal dari proses FFmpeg yang berjalan. Tautan unduh baru muncul setelah FFmpeg berhasil membuat file hasil yang tidak kosong.
 
-Media processing belongs in a separate, explicitly configured backend or authorized media source. The frontend currently makes no API calls. A future integration can use a small JSON API such as:
+FFmpeg dijalankan dengan argumen proses terpisah (tanpa shell). API hanya menerima permintaan dari loopback dan memeriksa origin lokal. File sumber dan hasil disimpan sementara di direktori temp, tidak dikirim ke server lain, dan dibersihkan saat server.py dihentikan. Hentikan server dengan Ctrl+C setelah selesai.
 
-1. `POST /api/analyze` with `{ "url": "…", "format": "mp4" }` returns actual capabilities, for example `{ "formats": ["mp4"], "qualities": [{ "id": "720p", "label": "720p" }], "durationSeconds": 183 }`. Return only formats and qualities that can really be produced for that input. `durationSeconds` may be `null` when unknown.
-2. `POST /api/jobs` with `{ "url": "…", "format": "mp4", "quality": "720p", "range": { "startSeconds": 10, "endSeconds": 80 } }` returns `202 Accepted` and `{ "jobId": "…" }`. Omit `range` for the full duration.
-3. `GET /api/jobs/{jobId}` returns the real job state, such as `{ "status": "processing", "progress": 42 }`, `{ "status": "failed", "message": "…" }`, or `{ "status": "complete", "downloadUrl": "…", "filename": "…" }`. Progress is optional and must reflect actual work.
+## URL YouTube
 
-Only expose controls after `/api/analyze` supplies the available options. The browser should submit a job only after the user requests it, show states returned by the processor, and offer a download only when a real authorized output is ready. The backend must independently validate inputs, follow platform terms and applicable law, protect credentials, and define clear data retention. No backend or processor is included in this repository.
+Pemeriksa URL hanya mengenali pola URL watch, youtu.be, Shorts, Live, dan embed. Pemeriksaan tersebut tidak mengambil metadata atau stream. Processor ini tidak mengunduh atau memisahkan audio/video dari URL YouTube. Gunakan fitur resmi platform atau file dari sumber yang Anda miliki izin untuk proses. Ketentuan YouTube membatasi reproduksi dan unduhan konten kecuali diizinkan oleh layanan, pemegang hak, atau hukum yang berlaku. Lihat [Ketentuan YouTube](https://www.youtube.com/t/terms) dan [Kebijakan Developer YouTube](https://developers.google.com/youtube/terms/developer-policies).
 
-## Deploy
+## API lokal
 
-The frontend is static and can be hosted by GitHub Pages or any static file host. For GitHub Pages, publish the repository root from the `main` branch in the repository's Pages settings. A static deployment will provide URL checks and request setup only; processing features will remain unavailable until a separate authorized service is added and integrated.
+- GET /api/health melaporkan runtime dan batas unggahan.
+- POST /api/analyze menerima file lokal sebagai application/octet-stream, nama yang di-URL-encode pada header X-Upload-Filename, dan header X-Processing-Permission: confirmed setelah pengguna menyatakan berhak memprosesnya. Respons berisi durasi, trek, format yang tersedia, dan opsi resolusi/bitrate nyata.
+- POST /api/jobs menerima sourceId, format, opsi kualitas, dan range opsional { "startSeconds": 5, "endSeconds": 20 }. Respons 202 berisi ID pekerjaan.
+- GET /api/jobs/{jobId} mengembalikan status/progres aktual. Saat status complete, respons memuat URL unduhan lokal.
+- GET /api/download/{jobId} mengirim file hasil nyata sebagai unduhan.
+
+Server hanya mengikat 127.0.0.1; API lokal ini dibuat untuk penggunaan satu orang pada komputer yang sama, bukan untuk dipublikasikan ke internet.
+
+## Tes
+
+Jalankan tes validasi frontend dan unit processor:
+
+```powershell
+node --test
+python -m unittest discover -s tests -v
+```
+
+Tes konversi end-to-end membutuhkan FFmpeg dan ffprobe. Gunakan hanya file contoh yang Anda miliki izin untuk proses.
