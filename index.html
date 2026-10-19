@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f5f7f6">
-    <meta name="description" content="Konversi file media yang boleh Anda gunakan dengan processor lokal.">
-    <title>yt-download — konversi media</title>
+    <meta name="description" content="Periksa tautan YouTube dan konversi file media yang boleh Anda gunakan.">
+    <title>yt-download — konversi media lokal</title>
     <link rel="stylesheet" href="css/styles.css">
     <script src="js/validation.js" defer></script>
     <script src="js/app.js" defer></script>
@@ -21,10 +21,6 @@
           </span>
           <span>yt<span class="brand-divider">-</span>download</span>
         </a>
-        <nav class="primary-nav" aria-label="Navigasi utama">
-          <a href="#alur">Cara kerja</a>
-          <a href="#batasan">Batasan</a>
-        </nav>
         <div class="processor-badge processor-offline" id="processor-badge" role="status" aria-live="polite">
           <span class="processor-dot" aria-hidden="true"></span>
           <span id="processor-state">Menghubungkan processor lokal…</span>
@@ -35,16 +31,16 @@
     <main id="main-content">
       <section class="hero" id="top" aria-labelledby="hero-title">
         <div class="hero-copy">
-          <p class="eyebrow">Konversi media, tetap di perangkat Anda</p>
-          <h1 id="hero-title">Dapatkan format yang Anda perlukan.</h1>
-          <p class="hero-description">Ubah file media yang boleh Anda proses ke MP4 atau MP3. Proses berjalan lokal; URL YouTube tidak diekstrak.</p>
+          <p class="eyebrow">Pemrosesan media lokal</p>
+          <h1 id="hero-title">Periksa tautan. Konversi file.</h1>
+          <p class="hero-description">Tautan YouTube tidak diekstrak. File yang Anda berhak gunakan bisa dikonversi di perangkat ini.</p>
         </div>
 
         <section class="workspace" aria-labelledby="workspace-title">
           <div class="workspace-heading">
             <div>
-              <p class="section-kicker">Processor lokal</p>
-              <h2 id="workspace-title">Pilih file media</h2>
+              <p class="section-kicker">Pemeriksaan otomatis</p>
+              <h2 id="workspace-title">Tempel tautan video</h2>
             </div>
             <span class="local-label">
               <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 2.5 4 5v4.2c0 3.8 2.6 6.8 6 8.3 3.4-1.5 6-4.5 6-8.3V5l-6-2.5Zm-2.7 7.2 1.8 1.8 3.8-4"/></svg>
@@ -52,7 +48,21 @@
             </span>
           </div>
 
-          <form id="source-form" novalidate>
+          <section class="url-entry" aria-labelledby="url-label">
+            <label id="url-label" for="youtube-link">URL video YouTube</label>
+            <div class="url-control">
+              <input id="youtube-link" type="url" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://www.youtube.com/watch?v=…" aria-describedby="youtube-url-help youtube-url-error">
+              <button class="icon-button" id="paste-url" type="button" aria-label="Tempel URL dari clipboard">Tempel</button>
+            </div>
+            <p class="field-help" id="youtube-url-help">URL diperiksa saat Anda mengetik atau menempelkannya.</p>
+            <p class="field-error" id="youtube-url-error" role="alert"></p>
+            <div class="url-status" id="url-status" role="status" aria-live="polite" hidden></div>
+          </section>
+
+          <div class="source-divider"><span>atau konversi file yang Anda miliki</span></div>
+          <h3 class="local-convert-title">Konversi file lokal</h3>
+
+          <div id="source-form">
             <div class="dropzone" id="dropzone">
               <input class="visually-hidden" id="media-file" name="media-file" type="file" accept="audio/*,video/*,.aac,.aif,.aiff,.alac,.flac,.m4a,.m4v,.mka,.mkv,.mov,.mp3,.mp4,.mpeg,.mpg,.oga,.ogg,.opus,.wav,.webm,.wma,.wmv,.avi" aria-describedby="upload-help upload-error">
               <label class="dropzone-label" for="media-file">
@@ -78,12 +88,9 @@
                 <input id="rights-checkbox" type="checkbox">
                 <span>Saya berhak memproses file ini</span>
               </label>
-              <button class="button button-primary" id="analyze-button" type="submit" disabled>
-                Periksa kemampuan
-                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M4 10h11m-4-4 4 4-4 4"/></svg>
-              </button>
+              <p class="action-note">Pemeriksaan file dimulai otomatis setelah izin dikonfirmasi.</p>
             </div>
-          </form>
+          </div>
 
           <section class="capability-panel" id="capability-panel" aria-labelledby="settings-title" hidden>
             <div class="media-summary" id="media-summary"></div>
@@ -161,62 +168,16 @@
             <div class="status-detail" id="status-detail"></div>
           </div>
 
-          <details class="url-checker" id="youtube-url">
-            <summary>Punya URL YouTube?</summary>
-            <div class="url-checker-content">
-              <label for="youtube-link">Periksa format URL saja</label>
-              <div class="url-control">
-                <input id="youtube-link" type="text" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://www.youtube.com/watch?v=…" aria-describedby="youtube-url-help youtube-url-error">
-                <button class="icon-button" id="paste-url" type="button" aria-label="Tempel URL dari clipboard">
-                  <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M7 5.5H5.8A1.8 1.8 0 0 0 4 7.3v7A1.8 1.8 0 0 0 5.8 16h6.4a1.8 1.8 0 0 0 1.8-1.8V13M8 3.5h6.2A1.8 1.8 0 0 1 16 5.3v6.4a1.8 1.8 0 0 1-1.8 1.8H8a1.8 1.8 0 0 1-1.8-1.8V5.3A1.8 1.8 0 0 1 8 3.5Z"/></svg>
-                  Tempel
-                </button>
-                <button class="icon-button" id="copy-url" type="button" aria-label="Salin URL" hidden>
-                  <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><rect x="7" y="6" width="9" height="10" rx="1.5"/><path d="M12.5 4H5.8A1.8 1.8 0 0 0 4 5.8v7"/></svg>
-                  Salin
-                </button>
-                <button class="button button-secondary" id="check-url" type="button">Periksa URL</button>
-              </div>
-              <p class="field-help" id="youtube-url-help">Link YouTube tidak diunduh. Gunakan file sumber yang boleh Anda proses.</p>
-              <p class="field-error" id="youtube-url-error" role="alert"></p>
-              <div class="url-status" id="url-status" role="status" aria-live="polite" hidden></div>
-            </div>
-          </details>
         </section>
 
         <p class="privacy-copy">File disimpan sementara secara lokal dan dihapus saat processor dihentikan.</p>
       </section>
 
-      <section class="content-section workflow-section" id="alur" aria-labelledby="workflow-title">
-        <div class="section-heading">
-          <p class="section-kicker">Tiga langkah</p>
-          <h2 id="workflow-title">Cara kerja</h2>
-        </div>
-        <div class="workflow-grid">
-          <div><span>01</span><p>Pilih file yang Anda punya izin untuk gunakan.</p></div>
-          <div><span>02</span><p>Pilih format, kualitas, dan rentang waktu.</p></div>
-          <div><span>03</span><p>Processor lokal mengubah file dan menyiapkan hasil nyata.</p></div>
-        </div>
-      </section>
-
-      <section class="content-section limits-section" id="batasan" aria-labelledby="limits-title">
-        <div class="limits-copy">
-          <p class="section-kicker">Sumber yang diizinkan</p>
-          <h2 id="limits-title">Tidak ada ekstraksi dari YouTube</h2>
-          <p>Halaman ini tidak mengambil stream, melewati pembatasan unduhan, atau memproses URL YouTube. Gunakan fitur unduh resmi atau file dari sumber yang memang Anda kuasai.</p>
-        </div>
-        <a class="policy-link" href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">Ketentuan YouTube <span aria-hidden="true">↗</span></a>
-      </section>
     </main>
 
     <footer class="site-footer">
       <div class="footer-inner">
-        <a class="brand footer-brand" href="#top">
-          <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M9.3 6.8v10.4l8-5.2-8-5.2Z" fill="currentColor"/></svg></span>
-          <span>yt<span class="brand-divider">-</span>download</span>
-        </a>
-        <p>Proyek independen; tidak berafiliasi dengan atau didukung oleh YouTube.</p>
-        <a class="footer-link" href="https://github.com/Muhadib4/yt-download" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+        <p>Konversi lokal untuk file yang Anda berhak proses. <a href="https://support.google.com/youtube/answer/56100?hl=id" target="_blank" rel="noopener noreferrer">Unduh video milik Anda lewat YouTube Studio</a>.</p>
       </div>
     </footer>
   </body>

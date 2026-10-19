@@ -14,10 +14,8 @@
   };
 
   const byId = (id) => document.getElementById(id);
-  const sourceForm = byId("source-form");
   const fileInput = byId("media-file");
   const rightsCheckbox = byId("rights-checkbox");
-  const analyzeButton = byId("analyze-button");
   const convertButton = byId("convert-button");
   const dropzone = byId("dropzone");
   const uploadError = byId("upload-error");
@@ -29,6 +27,7 @@
   const startInput = byId("start-time");
   const endInput = byId("end-time");
   const rangeError = byId("range-error");
+  let urlCheckTimer = null;
 
   function clearStatus() {
     statusPanel.hidden = true;
@@ -103,7 +102,6 @@
 
   function updateActionButtons() {
     const healthReady = Boolean(state.health && state.health.ready);
-    analyzeButton.disabled = state.busy || !healthReady || !state.file || !rightsCheckbox.checked;
     fileInput.disabled = state.busy || !healthReady;
     rightsCheckbox.disabled = state.busy || !healthReady;
 
@@ -139,6 +137,7 @@
           showStatus("Instal FFmpeg dan ffprobe, lalu jalankan python server.py.", "error");
         }
         updateActionButtons();
+        maybeInspectSelectedFile();
       })
       .catch(() => {
         state.health = { ready: false };
@@ -185,6 +184,7 @@
     byId("file-size").textContent = formatBytes(state.file.size);
     byId("selected-file").hidden = false;
     updateActionButtons();
+    maybeInspectSelectedFile();
   }
 
   function uploadForAnalysis(file) {
@@ -202,6 +202,9 @@
         if (step === lastProgressStep) return;
         lastProgressStep = step;
         showStatus("Mengirim file ke processor di perangkat ini…", "info", percent, `${percent}%`);
+      });
+      request.upload.addEventListener("load", () => {
+        showStatus("Memeriksa durasi, trek, dan pratinjau file…", "info");
       });
       request.addEventListener("load", () => {
         let response = {};
@@ -226,17 +229,27 @@
   function renderMediaSummary(source) {
     const summary = byId("media-summary");
     summary.replaceChildren();
+    if (source.thumbnailUrl) {
+      const thumbnail = document.createElement("img");
+      thumbnail.className = "media-thumbnail";
+      thumbnail.src = source.thumbnailUrl;
+      thumbnail.alt = `Pratinjau ${source.fileName}`;
+      summary.append(thumbnail);
+    }
+    const details = document.createElement("div");
+    details.className = "media-summary-details";
     const name = document.createElement("strong");
-    name.textContent = source.fileName;
-    summary.append(name);
+    name.textContent = source.title || source.fileName;
+    details.append(name);
     if (source.video) {
       const dimensions = document.createElement("span");
       dimensions.textContent = `${source.video.width} × ${source.video.height}`;
-      summary.append(dimensions);
+      details.append(dimensions);
     }
     const duration = document.createElement("span");
     duration.textContent = formatDuration(source.durationSeconds);
-    summary.append(duration);
+    details.append(duration);
+    summary.append(details);
     summary.dataset.bytes = formatBytes(source.sizeBytes);
   }
 
@@ -336,13 +349,8 @@
     return { valid: true, range: { startSeconds: result.startSeconds, endSeconds: result.endSeconds } };
   }
 
-  async function inspectSelectedFile(event) {
-    event.preventDefault();
-    if (!state.file) {
-      setUploadError("Pilih file audio atau video terlebih dahulu.");
-      fileInput.focus();
-      return;
-    }
+  async function inspectSelectedFile() {
+    if (state.busy || !state.file || !state.health || !state.health.ready) return;
     if (!rightsCheckbox.checked) {
       setUploadError("Konfirmasi izin pemrosesan sebelum file dikirim ke processor lokal.");
       rightsCheckbox.focus();
@@ -361,6 +369,12 @@
     } finally {
       state.busy = false;
       updateActionButtons();
+    }
+  }
+
+  function maybeInspectSelectedFile() {
+    if (state.file && rightsCheckbox.checked && !state.source && !state.busy) {
+      void inspectSelectedFile();
     }
   }
 
@@ -445,7 +459,7 @@
       });
   }
 
-  function analyzeYouTubeLink() {
+  function checkYouTubeLink() {
     const urlInput = byId("youtube-link");
     const error = byId("youtube-url-error");
     const result = validation.validateYouTubeUrl(urlInput.value);
@@ -454,24 +468,36 @@
     const status = byId("url-status");
     status.hidden = false;
     status.dataset.tone = result.valid ? "info" : "error";
-    status.textContent = result.valid
-      ? "Format link dikenali. Konten YouTube tidak diambil atau diunduh; gunakan file sumber yang boleh Anda proses."
-      : "Periksa format link, lalu coba lagi.";
-    if (!result.valid) urlInput.focus();
+    status.replaceChildren();
+    if (result.valid) {
+      status.append(document.createTextNode("Format URL dikenali. Metadata dan file YouTube tidak diambil. Untuk video milik Anda, unduh melalui YouTube Studio, lalu pilih file di bawah. "));
+      const officialLink = document.createElement("a");
+      officialLink.href = "https://support.google.com/youtube/answer/56100?hl=id";
+      officialLink.target = "_blank";
+      officialLink.rel = "noopener noreferrer";
+      officialLink.textContent = "Cara unduh resmi";
+      status.append(officialLink);
+    } else {
+      status.textContent = result.message;
+    }
   }
 
-  function fallbackCopy(value) {
-    const input = document.createElement("textarea");
-    input.value = value;
-    input.setAttribute("readonly", "");
-    input.style.position = "fixed";
-    input.style.opacity = "0";
-    document.body.append(input);
-    input.select();
-    let copied = false;
-    try { copied = document.execCommand("copy"); } catch { copied = false; }
-    input.remove();
-    return copied;
+  function scheduleYouTubeCheck() {
+    window.clearTimeout(urlCheckTimer);
+    const urlInput = byId("youtube-link");
+    const status = byId("url-status");
+    const error = byId("youtube-url-error");
+    error.textContent = "";
+    urlInput.setAttribute("aria-invalid", "false");
+    if (!urlInput.value.trim()) {
+      status.hidden = true;
+      status.replaceChildren();
+      return;
+    }
+    status.hidden = false;
+    status.dataset.tone = "info";
+    status.textContent = "Memeriksa format URL…";
+    urlCheckTimer = window.setTimeout(checkYouTubeLink, 250);
   }
 
   async function pasteYouTubeUrl() {
@@ -480,16 +506,12 @@
     if (!navigator.clipboard || !navigator.clipboard.readText) {
       byId("url-status").hidden = false;
       byId("url-status").dataset.tone = "info";
-      byId("url-status").textContent = "Akses clipboard tidak tersedia. Tempelkan URL dengan keyboard atau kontrol perangkat.";
+      byId("url-status").textContent = "Akses clipboard tidak tersedia. Tempelkan URL dengan keyboard.";
       return;
     }
     try {
       input.value = await navigator.clipboard.readText();
-      byId("copy-url").hidden = !input.value.trim();
-      byId("youtube-url-error").textContent = "";
-      byId("url-status").hidden = false;
-      byId("url-status").dataset.tone = "info";
-      byId("url-status").textContent = "URL ditempel. Pilih Periksa URL untuk memvalidasi format.";
+      scheduleYouTubeCheck();
     } catch {
       byId("url-status").hidden = false;
       byId("url-status").dataset.tone = "info";
@@ -497,26 +519,11 @@
     }
   }
 
-  async function copyYouTubeUrl() {
-    const input = byId("youtube-link");
-    const value = input.value.trim();
-    if (!value) return;
-    let copied = false;
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(value);
-        copied = true;
-      }
-    } catch { copied = false; }
-    if (!copied) copied = fallbackCopy(value);
-    byId("url-status").hidden = false;
-    byId("url-status").dataset.tone = copied ? "info" : "error";
-    byId("url-status").textContent = copied ? "URL disalin." : "Tidak dapat menyalin. Pilih URL lalu salin secara manual.";
-  }
-
   fileInput.addEventListener("change", () => selectFile(fileInput.files && fileInput.files[0]));
-  rightsCheckbox.addEventListener("change", updateActionButtons);
-  sourceForm.addEventListener("submit", inspectSelectedFile);
+  rightsCheckbox.addEventListener("change", () => {
+    updateActionButtons();
+    maybeInspectSelectedFile();
+  });
   convertButton.addEventListener("click", startConversion);
   byId("remove-file").addEventListener("click", () => {
     fileInput.value = "";
@@ -561,14 +568,8 @@
     input.addEventListener("change", updateDurationControls);
   });
   [startInput, endInput].forEach((input) => input.addEventListener("input", () => setRangeError("")));
-  byId("check-url").addEventListener("click", analyzeYouTubeLink);
-  byId("youtube-link").addEventListener("input", () => {
-    byId("youtube-url-error").textContent = "";
-    byId("url-status").hidden = true;
-    byId("copy-url").hidden = !byId("youtube-link").value.trim();
-  });
+  byId("youtube-link").addEventListener("input", scheduleYouTubeCheck);
   byId("paste-url").addEventListener("click", pasteYouTubeUrl);
-  byId("copy-url").addEventListener("click", copyYouTubeUrl);
 
   updateActionButtons();
   updateHealth();

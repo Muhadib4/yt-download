@@ -128,13 +128,20 @@ def _probe_media(path: Path) -> dict:
     except json.JSONDecodeError as exc:
         raise ValueError("The selected file returned unreadable media metadata.") from exc
 
+    format_metadata = metadata.get("format", {})
+    format_tags = format_metadata.get("tags", {})
+    media_title = ""
+    if isinstance(format_tags, dict):
+        raw_title = next((value for key, value in format_tags.items() if str(key).lower() == "title"), "")
+        media_title = "".join(char for char in str(raw_title) if char >= " " and char != "\x7f")[:200].strip()
+    media_title = media_title or path.name
     streams = metadata.get("streams", [])
     video_stream = next((item for item in streams if item.get("codec_type") == "video"), None)
     audio_stream = next((item for item in streams if item.get("codec_type") == "audio"), None)
     if not video_stream and not audio_stream:
         raise ValueError("The selected file does not contain an audio or video stream.")
 
-    duration_values = [metadata.get("format", {}).get("duration")]
+    duration_values = [format_metadata.get("duration")]
     duration_values.extend(item.get("duration") for item in streams)
     duration = None
     for raw_value in duration_values:
@@ -168,7 +175,28 @@ def _probe_media(path: Path) -> dict:
 
     if not video and not audio:
         raise ValueError("The selected file does not contain a supported audio or video stream.")
-    return {"durationSeconds": duration, "video": video, "audio": audio}
+    return {"title": media_title, "durationSeconds": duration, "video": video, "audio": audio}
+
+
+def _create_thumbnail(source_id: str, media_path: Path) -> Path | None:
+    if not FFMPEG:
+        return None
+    thumbnail_path = SOURCES_DIR / f"{source_id}.jpg"
+    command = [
+        FFMPEG, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+        "-ss", "0", "-protocol_whitelist", "file,pipe", "-i", str(media_path),
+        "-frames:v", "1", "-vf", "scale=640:-2:force_original_aspect_ratio=decrease",
+        "-q:v", "4", str(thumbnail_path),
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        thumbnail_path.unlink(missing_ok=True)
+        return None
+    if result.returncode != 0 or not thumbnail_path.is_file() or thumbnail_path.stat().st_size == 0:
+        thumbnail_path.unlink(missing_ok=True)
+        return None
+    return thumbnail_path
 
 
 def _build_capabilities(media: dict) -> tuple[list[dict], dict[str, str]]:
@@ -221,6 +249,8 @@ def _expire_old_items() -> None:
         for source_id, source in list(SOURCES.items()):
             if source["createdAt"] < cutoff and source_id not in active_sources:
                 paths_to_remove.append(source["path"])
+                if source.get("thumbnailPath"):
+                    paths_to_remove.append(source["thumbnailPath"])
                 del SOURCES[source_id]
         for job_id, job in list(JOBS.items()):
             if job["createdAt"] < cutoff and job["status"] not in {"queued", "processing"}:
@@ -518,6 +548,29 @@ class LocalHandler(BaseHTTPRequestHandler):
             finally:
                 stream.close()
             return
+        if path.startswith("/api/thumbnails/"):
+            source_id = path.removeprefix("/api/thumbnails/")
+            if not re.fullmatch(r"[0-9a-f]{32}", source_id):
+                self._send_json(404, {"error": "Thumbnail not found."})
+                return
+            with STATE_LOCK:
+                source = SOURCES.get(source_id)
+                thumbnail_path = source.get("thumbnailPath") if source else None
+            if not thumbnail_path:
+                self._send_json(404, {"error": "Thumbnail not found or expired."})
+                return
+            try:
+                thumbnail_bytes = thumbnail_path.read_bytes()
+            except OSError:
+                self._send_json(404, {"error": "Thumbnail not found or expired."})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(thumbnail_bytes)))
+            self._security_headers()
+            self.end_headers()
+            self.wfile.write(thumbnail_bytes)
+            return
 
         static_paths = {
             "/": ROOT / "index.html",
@@ -617,6 +670,7 @@ class LocalHandler(BaseHTTPRequestHandler):
             self._send_json(422, {"error": str(exc)})
             return
         formats, reasons = _build_capabilities(media)
+        thumbnail_path = _create_thumbnail(source_id, source_path) if media["video"] else None
         source = {
             "path": source_path,
             "fileName": filename,
@@ -624,6 +678,7 @@ class LocalHandler(BaseHTTPRequestHandler):
             "sizeBytes": content_length,
             "createdAt": time.time(),
             "media": media,
+            "thumbnailPath": thumbnail_path,
             "formats": formats,
             "reasons": reasons,
         }
@@ -632,10 +687,12 @@ class LocalHandler(BaseHTTPRequestHandler):
         self._send_json(200, {
             "sourceId": source_id,
             "fileName": filename,
+            "title": media["title"],
             "sizeBytes": content_length,
             "durationSeconds": media["durationSeconds"],
             "video": media["video"],
             "audio": media["audio"],
+            "thumbnailUrl": f"/api/thumbnails/{source_id}" if thumbnail_path else None,
             "formats": formats,
             "unavailableReasons": reasons,
         })
