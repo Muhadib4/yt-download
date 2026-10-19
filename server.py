@@ -320,21 +320,30 @@ def _run_youtube_job(job_id: str, source: dict, job: dict) -> None:
 
             if line:
                 output_tail.append(line[-500:])
+                print(f"[yt-dlp {job_id[:8]}] {line[-500:]}", flush=True)
                 lowered = line.lower()
                 if "downloading webpage" in lowered or "extracting url" in lowered:
                     stage = "Mengambil informasi video dari YouTube…"
                 elif "downloading m3u8" in lowered or "downloading api json" in lowered:
                     stage = "Memeriksa stream video…"
-                elif "destination:" in lowered or "[download]" in lowered or "fragment" in lowered:
+                elif "downloading 1 format" in lowered or "requested formats" in lowered or "has already been downloaded" in lowered:
+                    stage = "Menyiapkan stream video/audio…"
+                elif "destination:" in lowered or "[download]" in lowered or "fragment" in lowered or " at " in lowered and "eta" in lowered:
                     stage = "Mengunduh video/audio…"
                 elif "merging formats" in lowered or "merger" in lowered:
                     stage = "Menggabungkan video dan audio…"
                 elif any(word in lowered for word in ("post-process", "converting", "recode", "fixing")):
                     stage = f"Mengonversi hasil ke {job['format'].upper()}…"
-                elif "error:" in lowered:
+                elif "error:" in lowered or "http error" in lowered or "unable to download" in lowered:
                     stage = "YouTube melaporkan kendala; memeriksa hasil proses…"
                 else:
-                    stage = "Menyiapkan unduhan dari YouTube…"
+                    # Keep the last meaningful stage instead of replacing it with a
+                    # generic message for every informational yt-dlp line.
+                    with STATE_LOCK:
+                        current = JOBS.get(job_id)
+                        if current and current["status"] == "processing" and not current.get("stage"):
+                            current["stage"] = "Menyiapkan unduhan dari YouTube…"
+                    continue
                 with STATE_LOCK:
                     current = JOBS.get(job_id)
                     if current and current["status"] == "processing":
