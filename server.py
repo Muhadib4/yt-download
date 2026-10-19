@@ -275,16 +275,22 @@ def _run_youtube_job(job_id: str, source: dict, job: dict) -> None:
     watchdog = None
     try:
         work_dir.mkdir(parents=True, exist_ok=True)
-        command = [*YT_DLP_COMMAND, "--ignore-config", "--no-warnings", "--js-runtimes", "node", "--no-playlist", "--newline",
-                   "--progress-template", "download:__PROGRESS__%(progress._percent_str)s"]
+        command = [*YT_DLP_COMMAND, "--ignore-config", "--no-warnings", "--js-runtimes", "node", "--no-playlist", "--newline", "--progress"]
         time_range = job["range"]
         if time_range:
-            command.extend(["--download-sections", f"*{_format_timestamp(time_range['startSeconds'])}-{_format_timestamp(time_range['endSeconds'])}",
-                            "--force-keyframes-at-cuts"])
+            # Avoid --force-keyframes-at-cuts: it forces a costly video re-encode for
+            # trimmed sections, which can leave 4K jobs appearing stuck at 0%.
+            command.extend(["--download-sections", f"*{_format_timestamp(time_range['startSeconds'])}-{_format_timestamp(time_range['endSeconds'])}"])
         if job["format"] == "mp4":
             height = int(job["quality"].removeprefix("height-"))
-            command.extend(["--format", f"bv[height<={height}]+ba/b[height<={height}]",
-                            "--recode-video", "mp4"])
+            # Prefer MP4 video/audio streams when available; otherwise allow the best
+            # resolution-limited streams and remux to MP4 without re-encoding video.
+            format_selector = (
+                f"bv[height<={height}][ext=mp4]+ba[ext=m4a]/"
+                f"b[height<={height}][ext=mp4]/"
+                f"bv[height<={height}]+ba/b[height<={height}]"
+            )
+            command.extend(["--format", format_selector, "--merge-output-format", "mp4", "--remux-video", "mp4"])
         else:
             bitrate = int(job["quality"].removeprefix("bitrate-")) // 1000
             command.extend(["--format", "bestaudio/best", "--extract-audio", "--audio-format", "mp3",
@@ -296,7 +302,10 @@ def _run_youtube_job(job_id: str, source: dict, job: dict) -> None:
             current = JOBS.get(job_id)
             if current:
                 current.update(status="processing", progress=0, stage="Menghubungkan ke YouTube…", startedAt=time.time())
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1)
+        process = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", bufsize=1,
+        )
         with STATE_LOCK:
             ACTIVE_PROCESSES[job_id] = process
         watchdog = threading.Timer(MAX_JOB_SECONDS, process.kill)
@@ -304,18 +313,21 @@ def _run_youtube_job(job_id: str, source: dict, job: dict) -> None:
         watchdog.start()
         assert process.stdout
         for raw_line in process.stdout:
-            line = raw_line.decode("utf-8", errors="replace").strip()
-            if line.startswith("__PROGRESS__"):
-                raw_percent = line.removeprefix("__PROGRESS__").strip().replace("%", "")
+            line = raw_line.strip()
+            # yt-dlp's human-readable progress is reliable with --newline and also
+            # covers download-section jobs; the old custom template missed some cases.
+            progress_match = re.search(r"\\[download\\]\\s+(\\d+(?:\\.\\d+)?)%", line)
+            if progress_match:
                 try:
-                    progress = max(0, min(99, int(float(raw_percent))))
+                    progress = max(0, min(99, int(float(progress_match.group(1)))))
                 except ValueError:
-                    continue
-                with STATE_LOCK:
-                    current = JOBS.get(job_id)
-                    if current and current["status"] == "processing":
-                        current["progress"] = progress
-                        current["stage"] = "Mengunduh media dari YouTube…"
+                    progress = None
+                if progress is not None:
+                    with STATE_LOCK:
+                        current = JOBS.get(job_id)
+                        if current and current["status"] == "processing":
+                            current["progress"] = progress
+                            current["stage"] = "Mengunduh media dari YouTube…"
                 continue
 
             if line:
