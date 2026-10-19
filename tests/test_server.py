@@ -62,6 +62,37 @@ class CapabilityTests(unittest.TestCase):
         self.assertIn("trek video", reasons["mp4"])
 
 
+class YouTubeSupportTests(unittest.TestCase):
+    def test_youtube_url_host_validation(self):
+        self.assertTrue(server._is_youtube_url("https://www.youtube.com/watch?v=abc"))
+        self.assertTrue(server._is_youtube_url("https://youtu.be/abc"))
+        self.assertFalse(server._is_youtube_url("https://youtube.com.evil.example/watch?v=abc"))
+        self.assertFalse(server._is_youtube_url("https://example.com/video.mp4"))
+
+    def test_youtube_metadata_exposes_only_resolutions_not_above_source(self):
+        metadata = {
+            "title": "Test video", "duration": 60, "is_live": False,
+            "formats": [
+                {"vcodec": "avc1", "acodec": "none", "height": 1080, "width": 1920},
+                {"vcodec": "none", "acodec": "mp4a", "height": None, "width": None},
+            ],
+        }
+        with (
+            mock.patch.object(server, "_youtube_command_available", return_value=True),
+            mock.patch.object(server.subprocess, "run", return_value=mock.Mock(returncode=0, stdout=json.dumps(metadata), stderr="")),
+            mock.patch.object(server, "VIDEO_ENCODER", "libx264"),
+            mock.patch.object(server, "MP3_ENCODER", "libmp3lame"),
+        ):
+            result = server._analyze_youtube_source("https://www.youtube.com/watch?v=abc")
+        mp4 = next(item for item in result["formats"] if item["id"] == "mp4")
+        ids = {item["id"] for item in mp4["qualities"]}
+        self.assertIn("height-1080", ids)
+        self.assertNotIn("height-1440", ids)
+
+    def test_youtube_job_duration_is_limited_to_twelve_hours(self):
+        self.assertEqual(server.MAX_MEDIA_DURATION_SECONDS, 12 * 60 * 60)
+
+
 class CommandAndFilenameTests(unittest.TestCase):
     def test_mp4_command_uses_selected_resolution_and_trim(self):
         source = {

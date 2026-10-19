@@ -132,7 +132,7 @@
         const badge = byId("processor-badge");
         badge.classList.toggle("processor-offline", !health.ready);
         byId("processor-state").textContent = health.ready
-          ? "Processor siap · FFmpeg lokal"
+          ? (health.ytDlp ? "Processor siap · yt-dlp + FFmpeg" : "FFmpeg siap · yt-dlp belum tersedia")
           : "FFmpeg atau ffprobe tidak tersedia";
         if (!health.ready) {
           showStatus("Instal FFmpeg dan ffprobe, lalu jalankan python server.py.", "error");
@@ -413,7 +413,7 @@
     const quality = byId("quality-select").value;
     state.busy = true;
     updateActionButtons();
-    showStatus("Mengirim permintaan konversi ke FFmpeg lokal…", "info");
+    showStatus(state.source.sourceType === "youtube" ? "Memulai unduhan dengan yt-dlp dan pemrosesan FFmpeg…" : "Mengirim permintaan konversi ke FFmpeg lokal…", "info");
     try {
       const job = await requestJson("/api/jobs", {
         method: "POST",
@@ -446,7 +446,7 @@
         if (job.status === "processing") {
           const progress = Number.isFinite(job.progress) ? job.progress : null;
           const progressLabel = progress === null ? "Sedang diproses" : `${progress}%`;
-          showStatus("Mengonversi media dengan FFmpeg…", "info", progress, progressLabel);
+          showStatus(state.source && state.source.sourceType === "youtube" ? "Mengunduh dan menyiapkan media dengan yt-dlp…" : "Mengonversi media dengan FFmpeg…", "info", progress, progressLabel);
           window.setTimeout(() => pollJob(jobId), 700);
           return;
         }
@@ -487,8 +487,8 @@
     resetSourceState();
     state.busy = true;
     updateActionButtons();
-    setUrlStatus("Mengunduh dan memeriksa file media…", "info");
-    showStatus("Mengunduh file media dari sumber yang dipilih…", "info");
+    setUrlStatus("Memeriksa sumber media…", "info");
+    showStatus("Memeriksa metadata URL dan menyiapkan sumber…", "info");
     try {
       const source = await requestJson("/api/analyze-url", {
         method: "POST",

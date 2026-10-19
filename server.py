@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import socket
+import sys
 import tempfile
 import threading
 import time
@@ -30,15 +31,16 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 ROOT = Path(__file__).resolve().parent
-VIDEO_HEIGHTS = (2160, 1440, 1080, 720, 480, 360, 240, 144)
+VIDEO_HEIGHTS = (4320, 2160, 1440, 1080, 720, 480, 360, 240, 144)
 AUDIO_BITRATES = (320000, 256000, 192000, 128000)
 ALLOWED_EXTENSIONS = {
     ".aac", ".aif", ".aiff", ".alac", ".flac", ".m4a", ".m4v", ".mka",
     ".mkv", ".mov", ".mp3", ".mp4", ".mpeg", ".mpg", ".oga", ".ogg",
     ".opus", ".wav", ".webm", ".wma", ".wmv", ".avi",
 }
-SOURCE_TTL_SECONDS = 2 * 60 * 60
-MAX_JOB_SECONDS = 6 * 60 * 60
+SOURCE_TTL_SECONDS = 14 * 60 * 60
+MAX_JOB_SECONDS = 12 * 60 * 60
+MAX_MEDIA_DURATION_SECONDS = 12 * 60 * 60
 MAX_JSON_BYTES = 64 * 1024
 CHUNK_SIZE = 1024 * 1024
 MAX_REMOTE_REDIRECTS = 4
@@ -55,6 +57,8 @@ BLOCKED_REMOTE_HOSTS = {"youtu.be", "youtube.com", "youtube-nocookie.com"}
 
 FFMPEG = shutil.which("ffmpeg")
 FFPROBE = shutil.which("ffprobe")
+YT_DLP = shutil.which("yt-dlp")
+YT_DLP_COMMAND = [YT_DLP] if YT_DLP else [sys.executable, "-m", "yt_dlp"]
 
 
 def _available_encoders() -> set[str]:
@@ -138,6 +142,219 @@ def _validate_remote_url(value: str) -> str:
             if not ipaddress.ip_address(address).is_global:
                 raise ValueError("URL media harus menggunakan host publik, bukan alamat jaringan lokal.")
     return parsed.geturl()
+
+
+def _is_youtube_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        return False
+    host = parsed.hostname.lower().rstrip(".")
+    return host == "youtu.be" or host.endswith(".youtu.be") or host == "youtube.com" or host.endswith(".youtube.com")
+
+
+def _youtube_command_available() -> bool:
+    try:
+        result = subprocess.run([*YT_DLP_COMMAND, "--version"], capture_output=True, text=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def _analyze_youtube_source(source_url: str) -> dict:
+    parsed = urlsplit(source_url)
+    if not _is_youtube_url(source_url):
+        raise ValueError("Gunakan URL video YouTube yang valid.")
+    if parsed.scheme != "https":
+        raise ValueError("URL YouTube harus menggunakan HTTPS.")
+    if not _youtube_command_available():
+        raise RuntimeError("yt-dlp belum terpasang. Jalankan: python -m pip install -r requirements.txt, lalu mulai ulang server.")
+    try:
+        result = subprocess.run(
+            [*YT_DLP_COMMAND, "--ignore-config", "--no-warnings", "--no-playlist", "--skip-download", "--dump-single-json", source_url],
+            capture_output=True, text=True, timeout=120, check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("Pemeriksaan metadata YouTube melewati batas waktu.") from exc
+    except OSError as exc:
+        raise RuntimeError("yt-dlp tidak dapat dijalankan. Periksa instalasi Python dan yt-dlp.") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or "").lower()
+        if "sign in" in detail or "private video" in detail or "members-only" in detail:
+            raise ValueError("Video ini memerlukan akses atau autentikasi yang tidak didukung. Gunakan video publik yang boleh Anda unduh.")
+        raise ValueError("YouTube tidak menyediakan metadata video ini. Periksa URL, ketersediaan video, dan versi yt-dlp.")
+    try:
+        metadata = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError("yt-dlp mengembalikan metadata yang tidak terbaca.") from exc
+    if metadata.get("is_live") is True and not metadata.get("duration"):
+        raise ValueError("Live stream yang masih berlangsung belum didukung. Gunakan arsip live stream yang sudah tersedia.")
+    try:
+        duration = float(metadata.get("duration"))
+    except (TypeError, ValueError):
+        duration = None
+    if duration is not None and (not math.isfinite(duration) or duration <= 0):
+        duration = None
+
+    available_heights = set()
+    max_width = 0
+    has_video = False
+    has_audio = False
+    for item in metadata.get("formats", []):
+        if not isinstance(item, dict):
+            continue
+        video_codec, audio_codec = item.get("vcodec"), item.get("acodec")
+        if video_codec and video_codec != "none":
+            has_video = True
+            try:
+                height, width = int(item.get("height") or 0), int(item.get("width") or 0)
+            except (TypeError, ValueError):
+                height, width = 0, 0
+            if height > 0:
+                available_heights.add(height)
+            max_width = max(max_width, width)
+        if audio_codec and audio_codec != "none":
+            has_audio = True
+    max_height = max(available_heights, default=0)
+    title = "".join(char for char in str(metadata.get("title") or "YouTube video") if char >= " " and char != "\x7f")[:200].strip() or "YouTube video"
+    media = {
+        "title": title,
+        "durationSeconds": duration,
+        "video": {"width": max_width or 0, "height": max_height, "codec": "youtube"} if has_video and max_height else None,
+        "audio": {"codec": "youtube"} if has_audio else None,
+    }
+    formats, reasons = [], {}
+    if media["video"]:
+        if not VIDEO_ENCODER:
+            reasons["mp4"] = "FFmpeg tidak memiliki encoder H.264 (libx264)."
+        else:
+            qualities = [{"id": f"height-{target}", "label": f"{target}p"} for target in VIDEO_HEIGHTS if target in available_heights]
+            if qualities:
+                formats.append({"id": "mp4", "label": "MP4 video", "qualities": qualities})
+    else:
+        reasons["mp4"] = "Video tidak memiliki format video yang didukung."
+    if media["audio"]:
+        if not MP3_ENCODER:
+            reasons["mp3"] = "FFmpeg tidak memiliki encoder MP3 (libmp3lame)."
+        else:
+            formats.append({"id": "mp3", "label": "MP3 audio", "qualities": [
+                {"id": f"bitrate-{bitrate}", "label": f"{bitrate // 1000} kbps"} for bitrate in AUDIO_BITRATES
+            ]})
+    else:
+        reasons["mp3"] = "Video tidak memiliki trek audio yang didukung."
+
+    source_id = uuid.uuid4().hex
+    with STATE_LOCK:
+        SOURCES[source_id] = {
+            "path": None, "fileName": title, "safeStem": _safe_stem(title), "sizeBytes": 0,
+            "createdAt": time.time(), "media": media, "thumbnailPath": None, "formats": formats,
+            "reasons": reasons, "kind": "youtube", "url": source_url,
+            "availableHeights": sorted(available_heights),
+        }
+    return {
+        "sourceId": source_id, "fileName": title, "title": title, "sizeBytes": 0,
+        "durationSeconds": duration, "video": media["video"], "audio": media["audio"],
+        "thumbnailUrl": None, "formats": formats,
+        "unavailableReasons": reasons, "sourceType": "youtube",
+    }
+
+
+def _format_timestamp(value: float) -> str:
+    whole = max(0, int(value))
+    hours, remainder = divmod(whole, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def _run_youtube_job(job_id: str, source: dict, job: dict) -> None:
+    output_path = job["outputPath"]
+    work_dir = SOURCES_DIR / f"job-{job_id}"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    process = None
+    watchdog = None
+    try:
+        command = [*YT_DLP_COMMAND, "--ignore-config", "--no-warnings", "--no-playlist", "--newline",
+                   "--progress-template", "download:__PROGRESS__%(progress._percent_str)s"]
+        time_range = job["range"]
+        if time_range:
+            command.extend(["--download-sections", f"*{_format_timestamp(time_range['startSeconds'])}-{_format_timestamp(time_range['endSeconds'])}",
+                            "--force-keyframes-at-cuts"])
+        if job["format"] == "mp4":
+            height = int(job["quality"].removeprefix("height-"))
+            command.extend(["--format", f"bv*[height<={height}]+ba/bv*[height<={height}]/b[height<={height}]",
+                            "--recode-video", "mp4"])
+        else:
+            bitrate = int(job["quality"].removeprefix("bitrate-")) // 1000
+            command.extend(["--format", "bestaudio/best", "--extract-audio", "--audio-format", "mp3",
+                            "--audio-quality", f"{bitrate}K"])
+        command.extend(["--output", str(work_dir / "download.%(ext)s"), source["url"]])
+
+        with STATE_LOCK:
+            current = JOBS.get(job_id)
+            if current:
+                current.update(status="processing", progress=0, startedAt=time.time())
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1)
+        with STATE_LOCK:
+            ACTIVE_PROCESSES[job_id] = process
+        watchdog = threading.Timer(MAX_JOB_SECONDS, process.kill)
+        watchdog.daemon = True
+        watchdog.start()
+        assert process.stdout
+        for raw_line in process.stdout:
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if line.startswith("__PROGRESS__"):
+                raw_percent = line.removeprefix("__PROGRESS__").strip().replace("%", "")
+                try:
+                    progress = max(0, min(99, int(float(raw_percent))))
+                except ValueError:
+                    continue
+                with STATE_LOCK:
+                    current = JOBS.get(job_id)
+                    if current and current["status"] == "processing":
+                        current["progress"] = progress
+        return_code = process.wait()
+        candidates = [path for path in work_dir.glob("download.*") if path.is_file() and path.stat().st_size > 0]
+        expected_suffix = ".mp4" if job["format"] == "mp4" else ".mp3"
+        candidate = next((path for path in candidates if path.suffix.lower() == expected_suffix), None)
+        if return_code != 0 or candidate is None:
+            output_path.unlink(missing_ok=True)
+            with STATE_LOCK:
+                current = JOBS.get(job_id)
+                if current:
+                    current.update(status="failed", progress=None,
+                                   error="Unduhan gagal. Periksa apakah video publik, tersedia, dan dapat diunduh dengan versi yt-dlp terbaru.",
+                                   finishedAt=time.time())
+            return
+        if candidate.resolve() != output_path.resolve():
+            shutil.move(str(candidate), str(output_path))
+        with STATE_LOCK:
+            current = JOBS.get(job_id)
+            if current:
+                current.update(status="complete", progress=100, error=None, finishedAt=time.time(),
+                               outputBytes=output_path.stat().st_size)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        output_path.unlink(missing_ok=True)
+        with STATE_LOCK:
+            current = JOBS.get(job_id)
+            if current:
+                current.update(status="failed", progress=None,
+                               error="yt-dlp gagal dijalankan. Pastikan yt-dlp dan FFmpeg terpasang dan tersedia.",
+                               finishedAt=time.time())
+    finally:
+        if watchdog:
+            watchdog.cancel()
+        if process:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            if process.stdout:
+                process.stdout.close()
+        shutil.rmtree(work_dir, ignore_errors=True)
+        with STATE_LOCK:
+            ACTIVE_PROCESSES.pop(job_id, None)
+            WORKER_THREADS.discard(threading.current_thread())
 
 
 def _remote_filename(url: str, content_type: str, disposition: str) -> tuple[str, str]:
@@ -350,7 +567,8 @@ def _expire_old_items() -> None:
         }
         for source_id, source in list(SOURCES.items()):
             if source["createdAt"] < cutoff and source_id not in active_sources:
-                paths_to_remove.append(source["path"])
+                if source.get("path"):
+                    paths_to_remove.append(source["path"])
                 if source.get("thumbnailPath"):
                     paths_to_remove.append(source["thumbnailPath"])
                 del SOURCES[source_id]
@@ -410,8 +628,14 @@ def _run_job(job_id: str) -> None:
             job.update(status="failed", error="The temporary source file has expired. Inspect the file again.")
             WORKER_THREADS.discard(threading.current_thread())
             return
-        job.update(status="processing", progress=0 if job["durationSeconds"] else None, startedAt=time.time())
         output_path = job["outputPath"]
+        youtube_source = source if source.get("kind") == "youtube" else None
+        if youtube_source is None:
+            job.update(status="processing", progress=0 if job["durationSeconds"] else None, startedAt=time.time())
+
+    if youtube_source is not None:
+        _run_youtube_job(job_id, youtube_source, job)
+        return
 
     stderr_tail: deque[str] = deque(maxlen=40)
     process = None
@@ -590,6 +814,7 @@ class LocalHandler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self._send_json(200, {
                 "ready": bool(FFMPEG and FFPROBE),
+                "ytDlp": _youtube_command_available(),
                 "ffmpeg": bool(FFMPEG),
                 "ffprobe": bool(FFPROBE),
                 "maxUploadBytes": MAX_UPLOAD_BYTES,
@@ -818,6 +1043,15 @@ class LocalHandler(BaseHTTPRequestHandler):
 
         _expire_old_items()
         source_id = uuid.uuid4().hex
+        if _is_youtube_url(source_url.strip()):
+            try:
+                payload = _analyze_youtube_source(source_url.strip())
+            except (ValueError, RuntimeError) as exc:
+                self._send_json(422, {"error": str(exc)})
+                return
+            self._send_json(200, payload)
+            return
+
         try:
             source_path, filename, size_bytes = _download_remote_media(source_id, source_url.strip())
             media = _probe_media(source_path, filename)
@@ -907,6 +1141,9 @@ class LocalHandler(BaseHTTPRequestHandler):
                 if end_seconds > duration + 0.05:
                     self._send_json(422, {"error": "The end time is beyond this file's actual duration."})
                     return
+                if end_seconds - start_seconds > MAX_MEDIA_DURATION_SECONDS:
+                    self._send_json(422, {"error": "Durasi pilihan maksimal 12 jam."})
+                    return
                 time_range = {"startSeconds": start_seconds, "endSeconds": end_seconds}
 
             job_id = uuid.uuid4().hex
@@ -916,6 +1153,12 @@ class LocalHandler(BaseHTTPRequestHandler):
                 time_range["endSeconds"] - time_range["startSeconds"]
                 if time_range else source["media"]["durationSeconds"]
             )
+            if duration_for_progress is not None and duration_for_progress > MAX_MEDIA_DURATION_SECONDS:
+                self._send_json(422, {"error": "Durasi pilihan maksimal 12 jam. Pilih rentang khusus yang lebih pendek."})
+                return
+            if duration_for_progress is None and time_range is None:
+                self._send_json(422, {"error": "Durasi media tidak diketahui. Pilih media dengan durasi yang dapat dibaca atau gunakan rentang khusus maksimal 12 jam."})
+                return
             job = {
                 "sourceId": source_id,
                 "format": format_id,

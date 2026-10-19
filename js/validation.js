@@ -41,6 +41,9 @@
     if (endSeconds <= startSeconds) {
       return { valid: false, field: "end", message: "Waktu akhir harus setelah waktu mulai." };
     }
+    if (endSeconds - startSeconds > 12 * 60 * 60) {
+      return { valid: false, field: "end", message: "Durasi pilihan maksimal 12 jam." };
+    }
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
       return { valid: false, message: "Durasi file belum diketahui; rentang khusus tidak tersedia." };
     }

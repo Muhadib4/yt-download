@@ -29,3 +29,9 @@ test("parses and validates custom time ranges against actual duration", () => {
   assert.equal(validateTimeRange("00:00:05", "00:00:11", 10).field, "end");
   assert.equal(validateTimeRange("00:00:05", "00:00:09", null).valid, false);
 });
+
+
+test("limits a selected time range to twelve hours", () => {
+  assert.equal(validateTimeRange("00:00:00", "12:00:00", 43200).valid, true);
+  assert.equal(validateTimeRange("00:00:00", "12:00:01", 43201).valid, false);
+});
