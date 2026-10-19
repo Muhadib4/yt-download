@@ -271,10 +271,10 @@ def _format_timestamp(value: float) -> str:
 def _run_youtube_job(job_id: str, source: dict, job: dict) -> None:
     output_path = job["outputPath"]
     work_dir = SOURCES_DIR / f"job-{job_id}"
-    work_dir.mkdir(parents=True, exist_ok=True)
     process = None
     watchdog = None
     try:
+        work_dir.mkdir(parents=True, exist_ok=True)
         command = [*YT_DLP_COMMAND, "--ignore-config", "--no-warnings", "--no-playlist", "--newline",
                    "--progress-template", "download:__PROGRESS__%(progress._percent_str)s"]
         time_range = job["range"]
@@ -535,7 +535,7 @@ def _build_capabilities(media: dict) -> tuple[list[dict], dict[str, str]]:
             qualities.extend(
                 {"id": f"height-{target}", "label": f"{target}p"}
                 for target in VIDEO_HEIGHTS
-                if target < height
+                if target <= height
             )
             formats.append({"id": "mp4", "label": "MP4 video", "qualities": qualities})
     else:
