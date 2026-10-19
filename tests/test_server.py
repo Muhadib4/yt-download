@@ -1,4 +1,5 @@
 import unittest
+import json
 from pathlib import Path
 from threading import Thread
 from http.server import ThreadingHTTPServer
@@ -100,6 +101,11 @@ class CommandAndFilenameTests(unittest.TestCase):
     def test_output_names_never_include_user_path_components(self):
         self.assertEqual(server._safe_stem("../../My trip (final).mov"), "My_trip_final")
 
+    def test_remote_url_rejects_private_hosts_by_default(self):
+        with mock.patch.object(server, "ALLOW_PRIVATE_URL_SOURCES", False):
+            with self.assertRaises(ValueError):
+                server._validate_remote_url("http://127.0.0.1/example.mp4")
+
 
 class StaticServingTests(unittest.TestCase):
     @classmethod
@@ -136,6 +142,17 @@ class StaticServingTests(unittest.TestCase):
             f"{self.base_url}/api/analyze",
             data=b"not a media file",
             headers={"Content-Type": "application/octet-stream"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as response:
+            urlopen(request)
+        self.assertEqual(response.exception.code, 403)
+
+    def test_url_inspection_requires_permission_confirmation(self):
+        request = Request(
+            f"{self.base_url}/api/analyze-url",
+            data=json.dumps({"url": "https://media.example.com/file.mp4"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
             method="POST",
         )
         with self.assertRaises(HTTPError) as response:

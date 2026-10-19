@@ -28,6 +28,7 @@
   const endInput = byId("end-time");
   const rangeError = byId("range-error");
   let urlCheckTimer = null;
+  let urlAnalysisToken = 0;
 
   function clearStatus() {
     statusPanel.hidden = true;
@@ -138,6 +139,7 @@
         }
         updateActionButtons();
         maybeInspectSelectedFile();
+        maybeAnalyzeSourceUrl();
       })
       .catch(() => {
         state.health = { ready: false };
@@ -156,6 +158,19 @@
     setRangeError("");
     clearStatus();
     updateActionButtons();
+  }
+
+  function setUrlError(message) {
+    const input = byId("youtube-link");
+    byId("youtube-url-error").textContent = message || "";
+    input.setAttribute("aria-invalid", message ? "true" : "false");
+  }
+
+  function setUrlStatus(message, tone) {
+    const status = byId("url-status");
+    status.hidden = !message;
+    status.dataset.tone = tone || "info";
+    status.textContent = message || "";
   }
 
   function selectFile(file) {
@@ -459,48 +474,70 @@
       });
   }
 
-  function checkYouTubeLink() {
+  async function analyzeSourceUrl() {
     const urlInput = byId("youtube-link");
-    const error = byId("youtube-url-error");
-    const result = validation.validateYouTubeUrl(urlInput.value);
-    error.textContent = result.valid ? "" : result.message;
-    urlInput.setAttribute("aria-invalid", result.valid ? "false" : "true");
-    const status = byId("url-status");
-    status.hidden = false;
-    status.dataset.tone = result.valid ? "info" : "error";
-    status.replaceChildren();
-    if (result.valid) {
-      status.append(document.createTextNode("Format URL dikenali. Metadata dan file YouTube tidak diambil. Untuk video milik Anda, unduh melalui YouTube Studio, lalu pilih file di bawah. "));
-      const officialLink = document.createElement("a");
-      officialLink.href = "https://support.google.com/youtube/answer/56100?hl=id";
-      officialLink.target = "_blank";
-      officialLink.rel = "noopener noreferrer";
-      officialLink.textContent = "Cara unduh resmi";
-      status.append(officialLink);
-    } else {
-      status.textContent = result.message;
+    const result = validation.validateMediaSourceUrl(urlInput.value);
+    if (!result.valid || !rightsCheckbox.checked || state.busy || !state.health || !state.health.ready) return;
+    const requestedUrl = urlInput.value.trim();
+    const token = ++urlAnalysisToken;
+    state.file = null;
+    fileInput.value = "";
+    dropzone.classList.remove("has-file");
+    byId("selected-file").hidden = true;
+    resetSourceState();
+    state.busy = true;
+    updateActionButtons();
+    setUrlStatus("Mengunduh dan memeriksa file media…", "info");
+    showStatus("Mengunduh file media dari sumber yang dipilih…", "info");
+    try {
+      const source = await requestJson("/api/analyze-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: requestedUrl, permissionConfirmed: true }),
+      });
+      if (token !== urlAnalysisToken || urlInput.value.trim() !== requestedUrl) return;
+      renderCapabilities(source);
+      setUrlStatus("Media siap diatur untuk diunduh.", "success");
+    } catch (error) {
+      if (token === urlAnalysisToken) {
+        setUrlError(error.message);
+        setUrlStatus(error.message, "error");
+        showStatus(error.message, "error");
+      }
+    } finally {
+      if (token === urlAnalysisToken) {
+        state.busy = false;
+        updateActionButtons();
+      }
     }
   }
 
-  function scheduleYouTubeCheck() {
+  function maybeAnalyzeSourceUrl() {
+    const value = byId("youtube-link").value.trim();
+    if (value && rightsCheckbox.checked && !state.source && !state.busy) void analyzeSourceUrl();
+  }
+
+  function scheduleSourceUrlAnalysis() {
     window.clearTimeout(urlCheckTimer);
     const urlInput = byId("youtube-link");
-    const status = byId("url-status");
-    const error = byId("youtube-url-error");
-    error.textContent = "";
-    urlInput.setAttribute("aria-invalid", "false");
+    urlAnalysisToken += 1;
+    if (state.source && !state.busy) resetSourceState();
+    setUrlError("");
     if (!urlInput.value.trim()) {
-      status.hidden = true;
-      status.replaceChildren();
+      setUrlStatus("");
       return;
     }
-    status.hidden = false;
-    status.dataset.tone = "info";
-    status.textContent = "Memeriksa format URL…";
-    urlCheckTimer = window.setTimeout(checkYouTubeLink, 250);
+    const result = validation.validateMediaSourceUrl(urlInput.value);
+    if (!result.valid) {
+      setUrlError(result.message);
+      setUrlStatus(result.message, "error");
+      return;
+    }
+    setUrlStatus(rightsCheckbox.checked ? "Menyiapkan pemeriksaan URL…" : "Konfirmasikan izin untuk memulai pemeriksaan.", "info");
+    if (rightsCheckbox.checked) urlCheckTimer = window.setTimeout(() => void analyzeSourceUrl(), 450);
   }
 
-  async function pasteYouTubeUrl() {
+  async function pasteSourceUrl() {
     const input = byId("youtube-link");
     input.focus();
     if (!navigator.clipboard || !navigator.clipboard.readText) {
@@ -511,7 +548,7 @@
     }
     try {
       input.value = await navigator.clipboard.readText();
-      scheduleYouTubeCheck();
+      scheduleSourceUrlAnalysis();
     } catch {
       byId("url-status").hidden = false;
       byId("url-status").dataset.tone = "info";
@@ -523,6 +560,7 @@
   rightsCheckbox.addEventListener("change", () => {
     updateActionButtons();
     maybeInspectSelectedFile();
+    maybeAnalyzeSourceUrl();
   });
   convertButton.addEventListener("click", startConversion);
   byId("remove-file").addEventListener("click", () => {
@@ -568,8 +606,8 @@
     input.addEventListener("change", updateDurationControls);
   });
   [startInput, endInput].forEach((input) => input.addEventListener("input", () => setRangeError("")));
-  byId("youtube-link").addEventListener("input", scheduleYouTubeCheck);
-  byId("paste-url").addEventListener("click", pasteYouTubeUrl);
+  byId("youtube-link").addEventListener("input", scheduleSourceUrlAnalysis);
+  byId("paste-url").addEventListener("click", pasteSourceUrl);
 
   updateActionButtons();
   updateHealth();

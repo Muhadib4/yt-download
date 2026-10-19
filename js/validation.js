@@ -1,9 +1,9 @@
 (function (root) {
   "use strict";
 
-  function validateYouTubeUrl(value) {
+  function validateMediaSourceUrl(value) {
     const trimmed = String(value || "").trim();
-    if (!trimmed) return { valid: false, message: "Masukkan URL YouTube." };
+    if (!trimmed) return { valid: false, message: "Masukkan URL file media." };
 
     let parsed;
     try {
@@ -19,27 +19,6 @@
       return { valid: false, message: "Hapus informasi login dari URL." };
     }
 
-    const host = parsed.hostname.toLowerCase();
-    const isYouTube = ["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"].includes(host);
-    const isShortDomain = host === "youtu.be";
-    if (!isYouTube && !isShortDomain) {
-      return { valid: false, message: "Gunakan URL youtube.com atau youtu.be." };
-    }
-
-    let videoId = "";
-    if (isShortDomain) {
-      videoId = parsed.pathname.split("/").filter(Boolean)[0] || "";
-    } else if (parsed.pathname === "/watch") {
-      videoId = parsed.searchParams.get("v") || "";
-    } else {
-      const match = parsed.pathname.match(/^\/(?:shorts|live|embed)\/([^/?#]+)/);
-      videoId = match ? match[1] : "";
-    }
-
-    if (!videoId) return { valid: false, message: "URL ini tidak memuat ID video YouTube yang didukung." };
-    if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
-      return { valid: false, message: "ID video pada URL ini tidak valid." };
-    }
     return { valid: true };
   }
 
@@ -71,7 +50,7 @@
     return { valid: true, startSeconds, endSeconds };
   }
 
-  const api = { validateYouTubeUrl, parseTimestamp, validateTimeRange };
+  const api = { validateMediaSourceUrl, parseTimestamp, validateTimeRange };
   root.YtDownloadValidation = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);

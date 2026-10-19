@@ -1,13 +1,14 @@
 """Local-only media processor for files the user is permitted to process.
 
-The server never fetches URLs or extracts YouTube streams. It binds to loopback,
-keeps uploads and results in a temporary directory, and removes them on exit.
+The loopback server fetches only direct, permitted public media URLs and local
+uploads. It keeps sources and results in a temporary directory, then removes them on exit.
 """
 
 from __future__ import annotations
 
 import argparse
 import atexit
+import ipaddress
 import json
 import math
 import mimetypes
@@ -15,6 +16,7 @@ import os
 import re
 import shutil
 import subprocess
+import socket
 import tempfile
 import threading
 import time
@@ -22,7 +24,9 @@ import uuid
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, unquote, urlsplit
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, unquote, urljoin, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 ROOT = Path(__file__).resolve().parent
@@ -37,6 +41,17 @@ SOURCE_TTL_SECONDS = 2 * 60 * 60
 MAX_JOB_SECONDS = 6 * 60 * 60
 MAX_JSON_BYTES = 64 * 1024
 CHUNK_SIZE = 1024 * 1024
+MAX_REMOTE_REDIRECTS = 4
+REMOTE_TIMEOUT_SECONDS = 25
+ALLOW_PRIVATE_URL_SOURCES = False
+REMOTE_MIME_EXTENSIONS = {
+    "audio/aac": ".aac", "audio/flac": ".flac", "audio/mpeg": ".mp3",
+    "audio/mp4": ".m4a", "audio/ogg": ".ogg", "audio/opus": ".opus",
+    "audio/wav": ".wav", "audio/webm": ".webm", "video/mp4": ".mp4",
+    "video/ogg": ".ogv", "video/quicktime": ".mov", "video/webm": ".webm",
+    "video/x-msvideo": ".avi", "video/x-ms-wmv": ".wmv",
+}
+BLOCKED_REMOTE_HOSTS = {"youtu.be", "youtube.com", "youtube-nocookie.com"}
 
 FFMPEG = shutil.which("ffmpeg")
 FFPROBE = shutil.which("ffprobe")
@@ -98,7 +113,94 @@ def _safe_stem(filename: str) -> str:
     return (value[:72] or "media")
 
 
-def _probe_media(path: Path) -> dict:
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _validate_remote_url(value: str) -> str:
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Masukkan URL http:// atau https:// yang menunjuk ke file media langsung.")
+    if parsed.username or parsed.password:
+        raise ValueError("URL media tidak boleh berisi informasi login.")
+    host = parsed.hostname.lower().rstrip(".")
+    if host in BLOCKED_REMOTE_HOSTS or any(host.endswith(f".{item}") for item in BLOCKED_REMOTE_HOSTS):
+        raise ValueError("URL platform video tidak didukung. Gunakan URL file media langsung dari sumber yang mengizinkan unduhan.")
+    try:
+        addresses = {entry[4][0] for entry in socket.getaddrinfo(host, parsed.port, type=socket.SOCK_STREAM)}
+    except OSError as exc:
+        raise ValueError("Host URL media tidak dapat ditemukan.") from exc
+    if not addresses:
+        raise ValueError("Host URL media tidak memiliki alamat yang dapat diakses.")
+    if not ALLOW_PRIVATE_URL_SOURCES:
+        for address in addresses:
+            if not ipaddress.ip_address(address).is_global:
+                raise ValueError("URL media harus menggunakan host publik, bukan alamat jaringan lokal.")
+    return parsed.geturl()
+
+
+def _remote_filename(url: str, content_type: str, disposition: str) -> tuple[str, str]:
+    candidates = [unquote(match.group(1).strip().strip('"')) for match in re.finditer(r"filename\*?=(?:UTF-8''|)([^;]+)", disposition, re.I)]
+    candidates.append(Path(urlsplit(url).path).name)
+    extension = next((Path(item).suffix.lower() for item in candidates if Path(item).suffix.lower() in ALLOWED_EXTENSIONS), "")
+    normalized_type = content_type.split(";", 1)[0].strip().lower()
+    is_media_type = normalized_type.startswith(("audio/", "video/")) or normalized_type == "application/ogg"
+    if not extension and is_media_type:
+        extension = REMOTE_MIME_EXTENSIONS.get(normalized_type, "")
+    if not extension or (not is_media_type and normalized_type not in {"", "application/octet-stream"}):
+        raise ValueError("URL harus menunjuk langsung ke file audio atau video yang dapat diunduh.")
+    filename = next((_clean_display_name(item) for item in candidates if Path(item).suffix.lower() == extension), f"media{extension}")
+    return filename, extension
+
+
+def _download_remote_media(source_id: str, source_url: str) -> tuple[Path, str, int]:
+    current_url = _validate_remote_url(source_url)
+    opener = build_opener(_NoRedirect())
+    response = None
+    for _ in range(MAX_REMOTE_REDIRECTS + 1):
+        request = Request(current_url, headers={"User-Agent": "yt-download-local/1.0", "Accept": "audio/*,video/*;q=0.9,*/*;q=0.1"})
+        try:
+            response = opener.open(request, timeout=REMOTE_TIMEOUT_SECONDS)
+            break
+        except HTTPError as exc:
+            location = exc.headers.get("Location") if exc.code in {301, 302, 303, 307, 308} else None
+            if not location:
+                raise ValueError(f"Sumber media merespons dengan HTTP {exc.code}.") from exc
+            current_url = _validate_remote_url(urljoin(current_url, location))
+        except URLError as exc:
+            raise ValueError("Sumber media tidak dapat dihubungi.") from exc
+    if response is None:
+        raise ValueError("Terlalu banyak pengalihan URL media.")
+
+    with response:
+        content_length = response.headers.get("Content-Length", "")
+        try:
+            if content_length and int(content_length) > MAX_UPLOAD_BYTES:
+                raise ValueError(f"Ukuran file sumber melebihi batas {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
+        except ValueError as exc:
+            if "melebihi" in str(exc):
+                raise
+        filename, extension = _remote_filename(response.geturl(), response.headers.get("Content-Type", ""), response.headers.get("Content-Disposition", ""))
+        source_path = SOURCES_DIR / f"{source_id}{extension}"
+        total = 0
+        try:
+            with source_path.open("wb") as output:
+                while chunk := response.read(CHUNK_SIZE):
+                    total += len(chunk)
+                    if total > MAX_UPLOAD_BYTES:
+                        raise ValueError(f"Ukuran file sumber melebihi batas {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
+                    output.write(chunk)
+        except Exception:
+            source_path.unlink(missing_ok=True)
+            raise
+    if total < 1:
+        source_path.unlink(missing_ok=True)
+        raise ValueError("File media dari URL kosong.")
+    return source_path, filename, total
+
+
+def _probe_media(path: Path, fallback_title: str | None = None) -> dict:
     if not FFPROBE:
         raise RuntimeError("ffprobe was not found. Install FFmpeg and add it to PATH.")
     try:
@@ -134,7 +236,7 @@ def _probe_media(path: Path) -> dict:
     if isinstance(format_tags, dict):
         raw_title = next((value for key, value in format_tags.items() if str(key).lower() == "title"), "")
         media_title = "".join(char for char in str(raw_title) if char >= " " and char != "\x7f")[:200].strip()
-    media_title = media_title or path.name
+    media_title = media_title or fallback_title or path.name
     streams = metadata.get("streams", [])
     video_stream = next((item for item in streams if item.get("codec_type") == "video"), None)
     audio_stream = next((item for item in streams if item.get("codec_type") == "audio"), None)
@@ -604,6 +706,8 @@ class LocalHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/api/analyze":
             self._handle_analyze()
+        elif path == "/api/analyze-url":
+            self._handle_analyze_url()
         elif path == "/api/jobs":
             self._handle_create_job()
         else:
@@ -664,7 +768,7 @@ class LocalHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            media = _probe_media(source_path)
+            media = _probe_media(source_path, filename)
         except (ValueError, RuntimeError) as exc:
             source_path.unlink(missing_ok=True)
             self._send_json(422, {"error": str(exc)})
@@ -689,6 +793,63 @@ class LocalHandler(BaseHTTPRequestHandler):
             "fileName": filename,
             "title": media["title"],
             "sizeBytes": content_length,
+            "durationSeconds": media["durationSeconds"],
+            "video": media["video"],
+            "audio": media["audio"],
+            "thumbnailUrl": f"/api/thumbnails/{source_id}" if thumbnail_path else None,
+            "formats": formats,
+            "unavailableReasons": reasons,
+        })
+
+    def _handle_analyze_url(self) -> None:
+        if not FFMPEG or not FFPROBE:
+            self._send_json(503, {"error": "FFmpeg and ffprobe must be installed and available on PATH."})
+            return
+        data = self._read_json()
+        if data is None:
+            return
+        source_url = data.get("url")
+        if data.get("permissionConfirmed") is not True:
+            self._send_json(403, {"error": "Konfirmasikan bahwa Anda berhak mengunduh dan memproses media ini."})
+            return
+        if not isinstance(source_url, str) or len(source_url) > 4096:
+            self._send_json(400, {"error": "Masukkan URL file media yang valid."})
+            return
+
+        _expire_old_items()
+        source_id = uuid.uuid4().hex
+        try:
+            source_path, filename, size_bytes = _download_remote_media(source_id, source_url.strip())
+            media = _probe_media(source_path, filename)
+        except (ValueError, RuntimeError) as exc:
+            for candidate in SOURCES_DIR.glob(f"{source_id}.*"):
+                candidate.unlink(missing_ok=True)
+            self._send_json(422, {"error": str(exc)})
+            return
+        except OSError:
+            self._send_json(507, {"error": "Direktori sementara lokal tidak dapat menyimpan file sumber."})
+            return
+
+        formats, reasons = _build_capabilities(media)
+        thumbnail_path = _create_thumbnail(source_id, source_path) if media["video"] else None
+        source = {
+            "path": source_path,
+            "fileName": filename,
+            "safeStem": _safe_stem(filename),
+            "sizeBytes": size_bytes,
+            "createdAt": time.time(),
+            "media": media,
+            "thumbnailPath": thumbnail_path,
+            "formats": formats,
+            "reasons": reasons,
+        }
+        with STATE_LOCK:
+            SOURCES[source_id] = source
+        self._send_json(200, {
+            "sourceId": source_id,
+            "fileName": filename,
+            "title": media["title"],
+            "sizeBytes": size_bytes,
             "durationSeconds": media["durationSeconds"],
             "video": media["video"],
             "audio": media["audio"],
@@ -780,11 +941,12 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the local yt-download media processor.")
     parser.add_argument("--port", type=int, default=int(os.environ.get("YT_DOWNLOAD_PORT", "8765")))
     parser.add_argument("--max-upload-mb", type=int, default=None)
+    parser.add_argument("--allow-private-url-sources", action="store_true", help="Allow private-network URL sources for local testing only.")
     return parser.parse_args()
 
 
 def main() -> None:
-    global MAX_UPLOAD_BYTES
+    global ALLOW_PRIVATE_URL_SOURCES, MAX_UPLOAD_BYTES
     args = _parse_args()
     if not 1 <= args.port <= 65535:
         raise SystemExit("Port must be between 1 and 65535.")
@@ -792,6 +954,7 @@ def main() -> None:
         if args.max_upload_mb < 1:
             raise SystemExit("--max-upload-mb must be at least 1.")
         MAX_UPLOAD_BYTES = args.max_upload_mb * 1024 * 1024
+    ALLOW_PRIVATE_URL_SOURCES = args.allow_private_url_sources
     try:
         server = ThreadingHTTPServer(("127.0.0.1", args.port), LocalHandler)
     except OSError as exc:

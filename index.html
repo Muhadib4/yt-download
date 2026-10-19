@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f5f7f6">
-    <meta name="description" content="Periksa tautan YouTube dan konversi file media yang boleh Anda gunakan.">
-    <title>yt-download — konversi media lokal</title>
+    <meta name="description" content="Unduh dan konversi file media dari sumber yang mengizinkannya.">
+    <title>yt-download — media lokal</title>
     <link rel="stylesheet" href="css/styles.css">
     <script src="js/validation.js" defer></script>
     <script src="js/app.js" defer></script>
@@ -32,15 +32,15 @@
       <section class="hero" id="top" aria-labelledby="hero-title">
         <div class="hero-copy">
           <p class="eyebrow">Pemrosesan media lokal</p>
-          <h1 id="hero-title">Periksa tautan. Konversi file.</h1>
-          <p class="hero-description">Tautan YouTube tidak diekstrak. File yang Anda berhak gunakan bisa dikonversi di perangkat ini.</p>
+          <h1 id="hero-title">Unduh atau konversi media.</h1>
+          <p class="hero-description">Gunakan URL file audio atau video langsung dari sumber yang mengizinkan unduhan.</p>
         </div>
 
         <section class="workspace" aria-labelledby="workspace-title">
           <div class="workspace-heading">
             <div>
               <p class="section-kicker">Pemeriksaan otomatis</p>
-              <h2 id="workspace-title">Tempel tautan video</h2>
+              <h2 id="workspace-title">Tempel URL media</h2>
             </div>
             <span class="local-label">
               <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 2.5 4 5v4.2c0 3.8 2.6 6.8 6 8.3 3.4-1.5 6-4.5 6-8.3V5l-6-2.5Zm-2.7 7.2 1.8 1.8 3.8-4"/></svg>
@@ -49,15 +49,22 @@
           </div>
 
           <section class="url-entry" aria-labelledby="url-label">
-            <label id="url-label" for="youtube-link">URL video YouTube</label>
+            <label id="url-label" for="youtube-link">URL file media langsung</label>
             <div class="url-control">
-              <input id="youtube-link" type="url" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://www.youtube.com/watch?v=…" aria-describedby="youtube-url-help youtube-url-error">
+              <input id="youtube-link" type="url" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://contoh.com/video.mp4" aria-describedby="youtube-url-help youtube-url-error">
               <button class="icon-button" id="paste-url" type="button" aria-label="Tempel URL dari clipboard">Tempel</button>
             </div>
-            <p class="field-help" id="youtube-url-help">URL diperiksa saat Anda mengetik atau menempelkannya.</p>
+            <p class="field-help" id="youtube-url-help">Pemeriksaan dimulai otomatis setelah URL valid dan izin dikonfirmasi.</p>
             <p class="field-error" id="youtube-url-error" role="alert"></p>
             <div class="url-status" id="url-status" role="status" aria-live="polite" hidden></div>
           </section>
+
+          <div class="source-actions">
+            <label class="permission-check" for="rights-checkbox">
+              <input id="rights-checkbox" type="checkbox">
+              <span>Saya berhak mengunduh atau memproses media ini</span>
+            </label>
+          </div>
 
           <div class="source-divider"><span>atau konversi file yang Anda miliki</span></div>
           <h3 class="local-convert-title">Konversi file lokal</h3>
@@ -83,13 +90,7 @@
             </div>
             <p class="field-error" id="upload-error" role="alert"></p>
 
-            <div class="source-actions">
-              <label class="permission-check" for="rights-checkbox">
-                <input id="rights-checkbox" type="checkbox">
-                <span>Saya berhak memproses file ini</span>
-              </label>
-              <p class="action-note">Pemeriksaan file dimulai otomatis setelah izin dikonfirmasi.</p>
-            </div>
+            <p class="action-note">Pemeriksaan file dimulai otomatis setelah izin dikonfirmasi.</p>
           </div>
 
           <section class="capability-panel" id="capability-panel" aria-labelledby="settings-title" hidden>
@@ -177,7 +178,7 @@
 
     <footer class="site-footer">
       <div class="footer-inner">
-        <p>Konversi lokal untuk file yang Anda berhak proses. <a href="https://support.google.com/youtube/answer/56100?hl=id" target="_blank" rel="noopener noreferrer">Unduh video milik Anda lewat YouTube Studio</a>.</p>
+        <p>Media hanya diproses sementara di perangkat ini.</p>
       </div>
     </footer>
   </body>
