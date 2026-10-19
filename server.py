@@ -316,7 +316,7 @@ def _run_youtube_job(job_id: str, source: dict, job: dict) -> None:
             line = raw_line.strip()
             # yt-dlp's human-readable progress is reliable with --newline and also
             # covers download-section jobs; the old custom template missed some cases.
-            progress_match = re.search(r"\\[download\\]\\s+(\\d+(?:\\.\\d+)?)%", line)
+            progress_match = re.search(r"\[download\]\s+(\d+(?:\.\d+)?)%", line)
             if progress_match:
                 try:
                     progress = max(0, min(99, int(float(progress_match.group(1)))))
