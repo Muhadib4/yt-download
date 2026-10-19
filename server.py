@@ -173,7 +173,7 @@ def _analyze_youtube_source(source_url: str) -> dict:
         raise RuntimeError("yt-dlp belum terpasang. Jalankan: python -m pip install -r requirements.txt, lalu mulai ulang server.")
     try:
         result = subprocess.run(
-            [*YT_DLP_COMMAND, "--ignore-config", "--no-warnings", "--no-playlist", "--skip-download", "--dump-single-json", source_url],
+            [*YT_DLP_COMMAND, "--ignore-config", "--no-warnings", "--js-runtimes", "node", "--no-playlist", "--skip-download", "--dump-single-json", source_url],
             capture_output=True, text=True, timeout=120, check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -275,7 +275,7 @@ def _run_youtube_job(job_id: str, source: dict, job: dict) -> None:
     watchdog = None
     try:
         work_dir.mkdir(parents=True, exist_ok=True)
-        command = [*YT_DLP_COMMAND, "--ignore-config", "--no-warnings", "--no-playlist", "--newline",
+        command = [*YT_DLP_COMMAND, "--ignore-config", "--no-warnings", "--js-runtimes", "node", "--no-playlist", "--newline",
                    "--progress-template", "download:__PROGRESS__%(progress._percent_str)s"]
         time_range = job["range"]
         if time_range:
