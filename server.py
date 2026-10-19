@@ -283,7 +283,7 @@ def _run_youtube_job(job_id: str, source: dict, job: dict) -> None:
                             "--force-keyframes-at-cuts"])
         if job["format"] == "mp4":
             height = int(job["quality"].removeprefix("height-"))
-            command.extend(["--format", f"bv*[height<={height}]+ba/bv*[height<={height}]/b[height<={height}]",
+            command.extend(["--format", f"bv[height<={height}]+ba/b[height<={height}]",
                             "--recode-video", "mp4"])
         else:
             bitrate = int(job["quality"].removeprefix("bitrate-")) // 1000
