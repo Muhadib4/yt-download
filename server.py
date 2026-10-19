@@ -291,10 +291,11 @@ def _run_youtube_job(job_id: str, source: dict, job: dict) -> None:
                             "--audio-quality", f"{bitrate}K"])
         command.extend(["--output", str(work_dir / "download.%(ext)s"), source["url"]])
 
+        output_tail = deque(maxlen=40)
         with STATE_LOCK:
             current = JOBS.get(job_id)
             if current:
-                current.update(status="processing", progress=0, startedAt=time.time())
+                current.update(status="processing", progress=0, stage="Menghubungkan ke YouTube…", startedAt=time.time())
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1)
         with STATE_LOCK:
             ACTIVE_PROCESSES[job_id] = process
@@ -314,32 +315,64 @@ def _run_youtube_job(job_id: str, source: dict, job: dict) -> None:
                     current = JOBS.get(job_id)
                     if current and current["status"] == "processing":
                         current["progress"] = progress
+                        current["stage"] = "Mengunduh media dari YouTube…"
+                continue
+
+            if line:
+                output_tail.append(line[-500:])
+                lowered = line.lower()
+                if "downloading webpage" in lowered or "extracting url" in lowered:
+                    stage = "Mengambil informasi video dari YouTube…"
+                elif "downloading m3u8" in lowered or "downloading api json" in lowered:
+                    stage = "Memeriksa stream video…"
+                elif "destination:" in lowered or "[download]" in lowered or "fragment" in lowered:
+                    stage = "Mengunduh video/audio…"
+                elif "merging formats" in lowered or "merger" in lowered:
+                    stage = "Menggabungkan video dan audio…"
+                elif any(word in lowered for word in ("post-process", "converting", "recode", "fixing")):
+                    stage = f"Mengonversi hasil ke {job['format'].upper()}…"
+                elif "error:" in lowered:
+                    stage = "YouTube melaporkan kendala; memeriksa hasil proses…"
+                else:
+                    stage = "Menyiapkan unduhan dari YouTube…"
+                with STATE_LOCK:
+                    current = JOBS.get(job_id)
+                    if current and current["status"] == "processing":
+                        current["stage"] = stage
         return_code = process.wait()
         candidates = [path for path in work_dir.glob("download.*") if path.is_file() and path.stat().st_size > 0]
         expected_suffix = ".mp4" if job["format"] == "mp4" else ".mp3"
         candidate = next((path for path in candidates if path.suffix.lower() == expected_suffix), None)
         if return_code != 0 or candidate is None:
             output_path.unlink(missing_ok=True)
+            detail = "\n".join(output_tail).lower()
+            error = "Unduhan gagal. Periksa koneksi internet, ketersediaan video publik, dan versi yt-dlp."
+            if "requested format is not available" in detail:
+                error = "Format stream yang dipilih tidak tersedia dari YouTube. Coba resolusi yang lebih rendah."
+            elif "sign in to confirm you're not a bot" in detail or "confirm you're not a bot" in detail:
+                error = "YouTube meminta verifikasi tambahan untuk video ini. Coba lagi nanti atau gunakan video publik lain."
+            elif "private video" in detail or "members-only" in detail or "sign in to watch" in detail:
+                error = "Video ini memerlukan akses khusus dan tidak didukung oleh processor lokal."
+            elif "http error 403" in detail or "http error 429" in detail:
+                error = "YouTube menolak permintaan unduhan sementara. Tunggu sebentar lalu coba lagi."
             with STATE_LOCK:
                 current = JOBS.get(job_id)
                 if current:
-                    current.update(status="failed", progress=None,
-                                   error="Unduhan gagal. Periksa apakah video publik, tersedia, dan dapat diunduh dengan versi yt-dlp terbaru.",
-                                   finishedAt=time.time())
+                    current.update(status="failed", progress=None, stage="Unduhan gagal", error=error, finishedAt=time.time())
             return
         if candidate.resolve() != output_path.resolve():
             shutil.move(str(candidate), str(output_path))
         with STATE_LOCK:
             current = JOBS.get(job_id)
             if current:
-                current.update(status="complete", progress=100, error=None, finishedAt=time.time(),
+                current.update(status="complete", progress=100, stage="Selesai", error=None, finishedAt=time.time(),
                                outputBytes=output_path.stat().st_size)
     except (OSError, subprocess.SubprocessError, ValueError):
         output_path.unlink(missing_ok=True)
         with STATE_LOCK:
             current = JOBS.get(job_id)
             if current:
-                current.update(status="failed", progress=None,
+                current.update(status="failed", progress=None, stage="Proses gagal",
                                error="yt-dlp gagal dijalankan. Pastikan yt-dlp dan FFmpeg terpasang dan tersedia.",
                                finishedAt=time.time())
     finally:
@@ -836,6 +869,7 @@ class LocalHandler(BaseHTTPRequestHandler):
                     "jobId": job_id,
                     "status": job["status"],
                     "progress": job["progress"],
+                    "stage": job.get("stage"),
                     "error": job.get("error"),
                 }
                 if job["status"] == "complete":
@@ -1168,6 +1202,7 @@ class LocalHandler(BaseHTTPRequestHandler):
                 "outputPath": output_path,
                 "outputName": f"{source['safeStem']}.{format_id}",
                 "status": "queued",
+                "stage": "Menunggu processor…",
                 "progress": 0 if duration_for_progress else None,
                 "error": None,
                 "createdAt": time.time(),
