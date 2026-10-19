@@ -439,14 +439,17 @@
     requestJson(`/api/jobs/${jobId}`)
       .then((job) => {
         if (job.status === "queued") {
-          showStatus("Menunggu FFmpeg mulai memproses…", "info", 0, "Antrean");
+          showStatus(job.stage || "Menunggu processor mulai bekerja…", "info", 0, "Antrean");
           window.setTimeout(() => pollJob(jobId), 700);
           return;
         }
         if (job.status === "processing") {
           const progress = Number.isFinite(job.progress) ? job.progress : null;
-          const progressLabel = progress === null ? "Sedang diproses" : `${progress}%`;
-          showStatus(state.source && state.source.sourceType === "youtube" ? "Mengunduh dan menyiapkan media dengan yt-dlp…" : "Mengonversi media dengan FFmpeg…", "info", progress, progressLabel);
+          const progressLabel = progress === null ? "Sedang diproses" : (progress === 0 ? "Menyiapkan unduhan…" : `${progress}%`);
+          const message = state.source && state.source.sourceType === "youtube"
+            ? (job.stage || "Mengunduh dan menyiapkan media dengan yt-dlp…")
+            : "Mengonversi media dengan FFmpeg…";
+          showStatus(message, "info", progress, progressLabel);
           window.setTimeout(() => pollJob(jobId), 700);
           return;
         }
